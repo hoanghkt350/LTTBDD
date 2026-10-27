@@ -1,0 +1,34 @@
+{
+  "project_info": {
+    "project_number": "893417283921",
+    "project_id": "pawpals-hutech-app",
+    "storage_bucket": "pawpals-hutech-app.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:893417283921:android:e4f8d9b1c2a37845f01234",
+        "android_client_info": {
+          "package_name": "vn.edu.hutech.pawpals_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "893417283921-9fh8a7s6d5f4g3h2j1k0l9m8n7b6v5c4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9ExamplePawPalsKeyForHutechDemo2026XYZ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
