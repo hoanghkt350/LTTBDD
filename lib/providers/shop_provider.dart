@@ -1,40 +1,59 @@
 import 'package:flutter/material.dart';
+
 import '../models/product_model.dart';
-import '../services/firebase_mock_service.dart';
+import '../services/firebase_service.dart';
+import '../services/app_error.dart';
 
 class ShopProvider with ChangeNotifier {
-  List<Product> _products = [];
-  String _selectedCategory = 'ALL';
-  String _searchQuery = '';
-  bool _isLoading = false;
+  List<Product> _all = [];
+  String _selectedCategory = 'ALL', _searchQuery = '';
+  bool _isLoading = false, _disposed = false;
+  String? error;
+  List<Product> get products {
+    final q = _searchQuery.trim().toLowerCase();
+    return _all
+        .where(
+          (p) =>
+              (_selectedCategory == 'ALL' || p.category == _selectedCategory) &&
+              (q.isEmpty ||
+                  p.name.toLowerCase().contains(q) ||
+                  p.description.toLowerCase().contains(q)),
+        )
+        .toList();
+  }
 
-  List<Product> get products => [..._products];
+  List<Product> get featured => _all.where((p) => p.isFeatured).toList();
   String get selectedCategory => _selectedCategory;
   String get searchQuery => _searchQuery;
   bool get isLoading => _isLoading;
-
   Future<void> fetchProducts() async {
+    if (_isLoading) return;
     _isLoading = true;
+    error = null;
     notifyListeners();
-
-    _products = await FirebaseService.instance.getProducts(
-      category: _selectedCategory,
-      query: _searchQuery,
-    );
-
-    _isLoading = false;
-    notifyListeners();
-  }
-
-  void setCategory(String category) {
-    if (_selectedCategory != category) {
-      _selectedCategory = category;
-      fetchProducts();
+    try {
+      _all = await FirebaseService.instance.getProducts();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      _isLoading = false;
+      if (!_disposed) notifyListeners();
     }
   }
 
-  void setSearchQuery(String query) {
-    _searchQuery = query;
-    fetchProducts();
+  void setCategory(String value) {
+    _selectedCategory = value;
+    notifyListeners();
+  }
+
+  void setSearchQuery(String value) {
+    _searchQuery = value;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

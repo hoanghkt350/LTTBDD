@@ -1,271 +1,312 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../models/product_model.dart';
 import '../models/user_model.dart';
+import 'checkout_pricing.dart';
 
-/// Dịch vụ kết nối Google Firebase (Cloud Firestore & Authentication)
-/// Tích hợp đầy đủ theo Bài 6 (mục 6.5) của giáo trình CMP177 - HUTECH
 class FirebaseService {
-  static final FirebaseService instance = FirebaseService._internal();
-  FirebaseService._internal();
-
+  static final instance = FirebaseService._();
+  FirebaseService._();
   static bool isFirebaseInitialized = false;
+  static String? initializationError;
+  static FirebaseApp? _app;
+  fb.FirebaseAuth get auth {
+    _ensureReady();
+    return fb.FirebaseAuth.instanceFor(app: _app!);
+  }
 
-  /// Khởi tạo Firebase Core tại hàm main()
+  FirebaseFirestore get firestore {
+    _ensureReady();
+    return FirebaseFirestore.instanceFor(app: _app!);
+  }
+
+  void _ensureReady() {
+    if (!isFirebaseInitialized) {
+      throw StateError(
+        'Chưa kết nối Firebase. Hãy cấu hình project thật theo README.',
+      );
+    }
+  }
+
+  String get uid {
+    final user = auth.currentUser;
+    if (user == null) throw StateError('Bạn cần đăng nhập lại.');
+    return user.uid;
+  }
+
+  DocumentReference<Map<String, dynamic>> get userDocument =>
+      firestore.collection('users').doc(uid);
+  CollectionReference<Map<String, dynamic>> userCollection(String name) =>
+      userDocument.collection(name);
+
   static Future<void> initialize() async {
     try {
-      await Firebase.initializeApp();
+      const emulatorHost = String.fromEnvironment('FIREBASE_EMULATOR_HOST');
+      if (emulatorHost.isNotEmpty && !kDebugMode) {
+        throw StateError('Firebase Emulator chỉ dành cho bản debug.');
+      }
+      final app =
+          await (emulatorHost.isEmpty
+                  ? Firebase.initializeApp()
+                  : Firebase.initializeApp(
+                      name: 'pawpals-emulator',
+                      options: const FirebaseOptions(
+                        apiKey: 'demo-pawpals-key',
+                        appId: '1:123456789:android:1234567890abcdef',
+                        messagingSenderId: '123456789',
+                        projectId: 'demo-pawpals',
+                      ),
+                    ))
+              .timeout(const Duration(seconds: 15));
+      _app = app;
+      if (app.options.apiKey.contains('Example')) {
+        throw StateError(
+          'google-services.json đang chứa API key mẫu. Hãy thay bằng file từ Firebase Console và build lại.',
+        );
+      }
       isFirebaseInitialized = true;
-      debugPrint("🔥 Firebase Core đã khởi tạo thành công!");
+      initializationError = null;
+      if (emulatorHost.isNotEmpty) {
+        const authPort = int.fromEnvironment(
+          'FIREBASE_AUTH_EMULATOR_PORT',
+          defaultValue: 9099,
+        );
+        const firestorePort = int.fromEnvironment(
+          'FIRESTORE_EMULATOR_PORT',
+          defaultValue: 8080,
+        );
+        await instance.auth.useAuthEmulator(emulatorHost, authPort);
+        instance.firestore.useFirestoreEmulator(emulatorHost, firestorePort);
+      }
     } catch (e) {
-      debugPrint("⚠️ Firebase Init Fallback (Offline Mode): $e");
+      initializationError = e.toString();
       isFirebaseInitialized = false;
+      debugPrint('Firebase: $e');
     }
   }
 
-  // Danh mục sản phẩm lưu trên Cloud Firestore (có sẵn dữ liệu khởi tạo)
-  final List<Product> _localProducts = [
-    Product(
-      id: "prod_01",
-      name: "Thức Ăn Hạt Royal Canin Medium Adult (3kg)",
-      category: "FOOD",
-      petTarget: "DOG",
-      price: 395000,
-      originalPrice: 460000,
-      discountPercent: 14,
-      stock: 35,
-      rating: 4.9,
-      reviewCount: 215,
-      imageUrl: "https://images.unsplash.com/photo-1589924691995-400dc9ecc119?auto=format&fit=crop&w=600&q=80",
-      description: "Thức ăn hạt cao cấp chứa protein tiêu hóa chất lượng cao, tăng cường hệ miễn dịch và duy trì trọng lượng lý tưởng cho chó cỡ vừa (11-25kg).",
-      weight: "3kg",
-      isFeatured: true,
-    ),
-    Product(
-      id: "prod_02",
-      name: "Pate Mèo Whiskas Vị Cá Biển Hộp 400g",
-      category: "FOOD",
-      petTarget: "CAT",
-      price: 52000,
-      originalPrice: 65000,
-      discountPercent: 20,
-      stock: 80,
-      rating: 4.8,
-      reviewCount: 140,
-      imageUrl: "https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&w=600&q=80",
-      description: "Hương vị cá biển thơm ngon, bổ sung vitamin E, khoáng chất canxi và phốt pho giúp xương chắc khỏe và mắt sáng long lanh.",
-      weight: "400g",
-      isFeatured: true,
-    ),
-    Product(
-      id: "prod_03",
-      name: "Cát Vệ Sinh Đậu Nành Cature Tofu Khử Mùi",
-      category: "HYGIENE",
-      petTarget: "CAT",
-      price: 135000,
-      originalPrice: 155000,
-      discountPercent: 12,
-      stock: 45,
-      rating: 4.9,
-      reviewCount: 310,
-      imageUrl: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=600&q=80",
-      description: "100% nguyên liệu sợi đậu nành tự nhiên, vón cục siêu tốc, có thể xả trực tiếp vào bồn cầu tiện lợi và thân thiện môi trường.",
-      weight: "6L (2.5kg)",
-      isFeatured: true,
-    ),
-    Product(
-      id: "prod_04",
-      name: "Vòng Cổ Chuông Kèm Đệm Êm Ái Cho Thú Cưng",
-      category: "ACCESSORY",
-      petTarget: "ALL",
-      price: 45000,
-      originalPrice: 60000,
-      discountPercent: 25,
-      stock: 120,
-      rating: 4.7,
-      reviewCount: 88,
-      imageUrl: "https://images.unsplash.com/photo-1601758228041-f3b2795255f1?auto=format&fit=crop&w=600&q=80",
-      description: "Chất liệu dù cao cấp mềm mại không làm xước lông, có chuông lục lạc báo hiệu vị trí và chốt an toàn tự mở khi bị mắc kẹt.",
-      weight: "50g",
-      isFeatured: false,
-    ),
-    Product(
-      id: "prod_05",
-      name: "Đồ Chơi Gặm Xương Cao Su Tự Nhiên Giảm Cắn Phá",
-      category: "TOY",
-      petTarget: "DOG",
-      price: 89000,
-      originalPrice: 110000,
-      discountPercent: 19,
-      stock: 60,
-      rating: 4.8,
-      reviewCount: 75,
-      imageUrl: "https://images.unsplash.com/photo-1535930891776-0c2dfb7fda1a?auto=format&fit=crop&w=600&q=80",
-      description: "Cao su thiên nhiên siêu bền dẻo, có gai massage nướu và làm sạch mảng bám trên răng cho chó, chống stress khi ở nhà một mình.",
-      weight: "150g",
-      isFeatured: false,
-    ),
-    Product(
-      id: "prod_06",
-      name: "Dầu Cá Hồi Tinh Khiết Dưỡng Lông Hộp 250ml",
-      category: "HEALTH",
-      petTarget: "ALL",
-      price: 240000,
-      originalPrice: 280000,
-      discountPercent: 14,
-      stock: 25,
-      rating: 5.0,
-      reviewCount: 94,
-      imageUrl: "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?auto=format&fit=crop&w=600&q=80",
-      description: "Dầu cá hồi Na Uy nguyên chất giàu Omega-3, EPA và DHA giúp lông bóng mượt, giảm hẳn rụng lông và hỗ trợ sức khỏe tim mạch.",
-      weight: "250ml",
-      isFeatured: true,
-    ),
-  ];
-
-  // Collection: orders lưu trữ cục bộ khi offline
-  final List<Map<String, dynamic>> _localOrders = [];
-
-  /// 1. Lấy danh sách sản phẩm từ Cloud Firestore (Collection: products)
-  Future<List<Product>> getProducts({String? category, String? query}) async {
-    if (isFirebaseInitialized) {
-      try {
-        final collection = FirebaseFirestore.instance.collection('products');
-        Query firestoreQuery = collection;
-
-        if (category != null && category != 'ALL') {
-          firestoreQuery = firestoreQuery.where('category', isEqualTo: category);
-        }
-
-        final snapshot = await firestoreQuery.get();
-        if (snapshot.docs.isNotEmpty) {
-          final List<Product> firestoreList = snapshot.docs.map<Product>((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            data['id'] = doc.id;
-            return Product.fromMap(data);
-          }).toList();
-
-          if (query != null && query.trim().isNotEmpty) {
-            final q = query.toLowerCase();
-            return firestoreList.where((p) => p.name.toLowerCase().contains(q) || p.description.toLowerCase().contains(q)).toList();
-          }
-          return firestoreList;
-        }
-      } catch (e) {
-        debugPrint("Lỗi đọc Firestore products, chuyển sang dữ liệu nội bộ: $e");
-      }
-    }
-
-    // Fallback dữ liệu nội bộ
-    await Future.delayed(const Duration(milliseconds: 300));
-    var list = _localProducts;
-
-    if (category != null && category != 'ALL') {
-      list = list.where((p) => p.category == category).toList();
-    }
-
-    if (query != null && query.trim().isNotEmpty) {
-      final q = query.toLowerCase();
-      list = list.where((p) => p.name.toLowerCase().contains(q) || p.description.toLowerCase().contains(q)).toList();
-    }
-
-    return list;
+  AppUser profileFromAuth(fb.User user) => AppUser(
+    uid: user.uid,
+    email: user.email ?? '',
+    displayName: user.displayName ?? user.email?.split('@').first ?? 'Chủ nuôi',
+    phoneNumber: user.phoneNumber,
+    avatarUrl: user.photoURL,
+  );
+  Future<AppUser> getProfile(fb.User user) async {
+    final snapshot = await firestore
+        .collection('users')
+        .doc(user.uid)
+        .get()
+        .timeout(const Duration(seconds: 12));
+    return snapshot.exists
+        ? AppUser.fromJson({...snapshot.data()!, 'uid': user.uid})
+        : profileFromAuth(user);
   }
 
-  /// 2. Thêm đơn hàng vào Cloud Firestore (Collection: orders)
-  Future<String> createOrder(Map<String, dynamic> orderData) async {
-    final orderId = "ORD-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}";
-    orderData['orderId'] = orderId;
-    orderData['createdAt'] = DateTime.now().toIso8601String();
-
-    if (isFirebaseInitialized) {
-      try {
-        await FirebaseFirestore.instance.collection('orders').doc(orderId).set(orderData);
-        debugPrint("🔥 Đã lưu đơn hàng lên Cloud Firestore: $orderId");
-      } catch (e) {
-        debugPrint("Lỗi ghi Firestore order, lưu tạm nội bộ: $e");
-      }
-    }
-
-    _localOrders.insert(0, orderData);
-    return orderId;
-  }
-
-  /// 3. Lấy lịch sử đơn hàng từ Cloud Firestore
-  Future<List<Map<String, dynamic>>> getOrders() async {
-    if (isFirebaseInitialized) {
-      try {
-        final snapshot = await FirebaseFirestore.instance.collection('orders').orderBy('createdAt', descending: true).get();
-        if (snapshot.docs.isNotEmpty) {
-          return snapshot.docs.map((d) => d.data()).toList();
-        }
-      } catch (e) {
-        debugPrint("Lỗi lấy orders từ Firestore: $e");
-      }
-    }
-    return List.from(_localOrders);
-  }
-
-  /// 4. Đăng nhập với Firebase Authentication
   Future<AppUser> signInWithEmail(String email, String password) async {
-    if (isFirebaseInitialized) {
-      try {
-        final auth = fb_auth.FirebaseAuth.instance;
-        fb_auth.UserCredential credential;
-        try {
-          credential = await auth.signInWithEmailAndPassword(email: email, password: password);
-        } on fb_auth.FirebaseAuthException catch (e) {
-          if (e.code == 'user-not-found') {
-            credential = await auth.createUserWithEmailAndPassword(email: email, password: password);
-          } else {
-            rethrow;
-          }
-        }
+    final credential = await auth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    return getProfile(credential.user!);
+  }
 
-        final fbUser = credential.user;
-        if (fbUser != null) {
-          return AppUser(
-            uid: fbUser.uid,
-            email: fbUser.email ?? email,
-            displayName: fbUser.displayName ?? email.split('@').first.toUpperCase(),
-            phoneNumber: fbUser.phoneNumber ?? "0901234567",
-            address: "475A Điện Biên Phủ, P.25, Bình Thạnh, TP.HCM",
-            avatarUrl: fbUser.photoURL ?? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
-            membershipLevel: "VIP MEMBER (FIREBASE AUTH)",
+  Future<AppUser> register(String name, String email, String password) async {
+    final credential = await auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    await credential.user!.updateDisplayName(name);
+    final user = profileFromAuth(credential.user!).copyWith(displayName: name);
+    await saveProfile(user);
+    return user;
+  }
+
+  Future<void> saveProfile(AppUser user) async {
+    if (user.uid != uid) throw StateError('Tài khoản không hợp lệ.');
+    await userDocument.set(user.toJson()).timeout(const Duration(seconds: 15));
+    await auth.currentUser!.updateDisplayName(user.displayName);
+  }
+
+  Future<void> resetPassword(String email) =>
+      auth.sendPasswordResetEmail(email: email);
+
+  Future<List<Product>> getProducts({String? category, String? query}) async {
+    final snapshot = await firestore
+        .collection('products')
+        .get()
+        .timeout(const Duration(seconds: 12));
+    var products = snapshot.docs
+        .map((d) => Product.fromMap({...d.data(), 'id': d.id}))
+        .toList();
+    if (category != null && category != 'ALL') {
+      products = products.where((p) => p.category == category).toList();
+    }
+    final search = query?.trim().toLowerCase() ?? '';
+    if (search.isNotEmpty) {
+      products = products
+          .where(
+            (p) =>
+                p.name.toLowerCase().contains(search) ||
+                p.description.toLowerCase().contains(search),
+          )
+          .toList();
+    }
+    return products;
+  }
+
+  // A Firestore transaction validates current prices and reserves stock atomically.
+  // The order ID is supplied by the caller and reused on retry to avoid duplicates.
+  Future<String> createOrder(
+    Map<String, dynamic> data, {
+    required String orderId,
+  }) async {
+    final owner = uid;
+    final ref = firestore.collection('orders').doc(orderId);
+    final input = Map<String, int>.from(data['quantities'] as Map);
+    if (input.isEmpty ||
+        input.length > 5 ||
+        input.values.any((q) => q < 1 || q > 99)) {
+      throw StateError('Mỗi đơn tối đa 5 loại sản phẩm, mỗi loại từ 1 đến 99.');
+    }
+    final voucher = data['voucher'] as String? ?? '';
+    if (voucher.isNotEmpty && !CheckoutPricing.vouchers.contains(voucher)) {
+      throw StateError('Mã giảm giá không hợp lệ.');
+    }
+    final recipient = Map<String, dynamic>.from(data['recipient'] as Map);
+    if ((recipient['name'] as String? ?? '').trim().isEmpty ||
+        !RegExp(r'^\+?[0-9]{9,12}$')
+            .hasMatch(recipient['phone'] as String? ?? '') ||
+        (recipient['address'] as String? ?? '').trim().length < 8) {
+      throw StateError(
+        'Vui lòng nhập tên, số điện thoại và địa chỉ giao hàng hợp lệ.',
+      );
+    }
+    return firestore.runTransaction((tx) async {
+      final previous = await tx.get(ref);
+      if (previous.exists) {
+        if (previous.data()!['userId'] != owner) {
+          throw StateError('Mã đơn không hợp lệ.');
+        }
+        return orderId;
+      }
+      final products = <String, Product>{};
+      for (final id in input.keys) {
+        final doc = await tx.get(firestore.collection('products').doc(id));
+        if (!doc.exists) {
+          throw StateError('Sản phẩm đã ngừng bán. Hãy cập nhật giỏ hàng.');
+        }
+        final product = Product.fromMap({...doc.data()!, 'id': id});
+        if ((data['prices'] as Map?)?[id] != product.price) {
+          throw StateError(
+            'Giá sản phẩm đã thay đổi. Bấm cập nhật giỏ hàng trước khi đặt lại.',
           );
         }
-      } catch (e) {
-        debugPrint("Firebase Auth Error / Fallback: $e");
+        if (product.stock < input[id]!) {
+          throw StateError(
+            '${product.name} chỉ còn ${product.stock} sản phẩm.',
+          );
+        }
+        products[id] = product;
       }
-    }
-
-    // Fallback user
-    await Future.delayed(const Duration(milliseconds: 500));
-    return AppUser(
-      uid: "user_hutech_${email.hashCode.abs()}",
-      email: email,
-      displayName: email.split('@').first.toUpperCase(),
-      phoneNumber: "0901234567",
-      address: "475A Điện Biên Phủ, P.25, Bình Thạnh, TP.HCM",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
-      membershipLevel: "VIP MEMBER",
-    );
+      double subtotal = 0;
+      final items = <String, dynamic>{};
+      for (final entry in products.entries) {
+        final p = entry.value;
+        final quantity = input[entry.key]!;
+        subtotal += p.price * quantity;
+        items[entry.key] = {
+          'name': p.name,
+          'price': p.price,
+          'quantity': quantity,
+          'imageUrl': p.imageUrl,
+        };
+        tx.update(firestore.collection('products').doc(entry.key), {
+          'stock': p.stock - quantity,
+          'lastOrderId': orderId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      final discount = CheckoutPricing.discount(subtotal, voucher);
+      final shipping = CheckoutPricing.shipping(subtotal, voucher);
+      tx.set(ref, {
+        'orderId': orderId,
+        'userId': owner,
+        'items': items,
+        'recipient': recipient,
+        'subtotal': subtotal,
+        'discountAmount': discount,
+        'shippingFee': shipping,
+        'totalAmount': subtotal - discount + shipping,
+        'voucher': voucher,
+        'status': 'Chờ xác nhận',
+        'paymentMethod': 'COD',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      return orderId;
+    });
   }
 
-  /// 5. Đồng bộ hồ sơ thú cưng từ SQFlite lên Cloud Firestore (Cloud Sync)
-  Future<bool> syncLocalPetsToCloud(int count) async {
-    if (isFirebaseInitialized) {
-      try {
-        debugPrint("🔥 Đang đồng bộ $count thú cưng lên Firebase Firestore collection 'pets'...");
-        await Future.delayed(const Duration(milliseconds: 600));
-        return true;
-      } catch (e) {
-        debugPrint("Lỗi sync Firebase: $e");
+  Stream<List<Map<String, dynamic>>> watchOrders() {
+    return firestore
+        .collection('orders')
+        .where('userId', isEqualTo: uid)
+        .snapshots()
+        .map((s) {
+          final orders = s.docs
+              .map((d) => {...d.data(), 'orderId': d.id})
+              .toList();
+          orders.sort(
+            (a, b) =>
+                ((b['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0)
+                    .compareTo(
+                      (a['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ??
+                          0,
+                    ),
+          );
+          return orders;
+        });
+  }
+
+  Future<List<Map<String, dynamic>>> getOrders() => watchOrders().first;
+  Future<void> cancelOrder(String id) async {
+    final owner = uid;
+    final ref = firestore.collection('orders').doc(id);
+    await firestore.runTransaction((tx) async {
+      final doc = await tx.get(ref);
+      if (!doc.exists || doc.data()!['userId'] != owner) {
+        throw StateError('Không tìm thấy đơn hàng.');
       }
-    }
-    await Future.delayed(const Duration(milliseconds: 800));
-    return true;
+      final order = doc.data()!;
+      if (order['status'] == 'Đã hủy') return;
+      if (order['status'] != 'Chờ xác nhận') {
+        throw StateError('Đơn hàng đã xử lý, không thể hủy.');
+      }
+      final items = Map<String, dynamic>.from(order['items'] as Map);
+      final stock = <String, int>{};
+      for (final key in items.keys) {
+        final product = await tx.get(firestore.collection('products').doc(key));
+        if (!product.exists) {
+          throw StateError(
+            'Không thể hoàn tồn kho. Vui lòng liên hệ cửa hàng.',
+          );
+        }
+        stock[key] = (product.data()!['stock'] as num).toInt();
+      }
+      for (final key in items.keys) {
+        tx.update(firestore.collection('products').doc(key), {
+          'stock': stock[key]! + (items[key]['quantity'] as num).toInt(),
+          'lastOrderId': id,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      tx.update(ref, {
+        'status': 'Đã hủy',
+        'cancelledAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 }

@@ -1,0 +1,10 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "pets",
+      "fieldPath": "avatar_cloud_url",
+      "indexes": []
+    }
+  ]
+}

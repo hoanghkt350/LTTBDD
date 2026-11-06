@@ -1,476 +1,453 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../providers/pet_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../providers/clinic_provider.dart';
-import '../../providers/cart_provider.dart';
+import '../../models/article_model.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/care_widgets.dart';
 import '../pet/add_pet_screen.dart';
-import '../pet/pet_list_screen.dart';
-import '../shop/shop_screen.dart';
-import '../shop/product_detail_screen.dart';
-import '../clinic/clinic_screen.dart';
-import '../cart/cart_screen.dart';
+import '../pet/pet_avatar.dart';
+import '../pet/pet_detail_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final Function(int) onTabChange;
-
   const HomeScreen({super.key, required this.onTabChange});
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final pet = context.watch<PetProvider>();
+    final pets = context.watch<PetProvider>();
     final shop = context.watch<ShopProvider>();
-    final clinic = context.watch<ClinicProvider>();
-    final cart = context.watch<CartProvider>();
-    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
-
+    final content = context.watch<ClinicProvider>();
+    final reminders = pets.reminders.where((r) => r.isActive == 1).toList();
+    void addPet() => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddPetScreen()),
+    );
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: const Color(0xFFFF6B6B).withOpacity(0.15),
-              child: const Icon(Icons.pets, color: Color(0xFFFF6B6B), size: 20),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'PawPals Mobile',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Chào, ${auth.user?.displayName ?? "Chủ nuôi"}!',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ],
-            ),
+            Icon(Icons.pets_rounded, color: AppTheme.secondary, size: 27),
+            SizedBox(width: 9),
+            Text('PawPals'),
           ],
         ),
         actions: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart_outlined),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (context) => const CartScreen()),
-                  );
-                },
-              ),
-              if (cart.itemCount > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFF6B6B),
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                    child: Text(
-                      '${cart.itemCount}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+          IconButton(
+            tooltip: 'Lịch nhắc',
+            onPressed: () => onTabChange(1),
+            icon: Badge(
+              isLabelVisible: reminders.isNotEmpty,
+              backgroundColor: AppTheme.primary,
+              child: const Icon(Icons.notifications_none_rounded),
+            ),
           ),
+          const SizedBox(width: 12),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Banner khuyến mãi
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                padding: const EdgeInsets.all(18),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([
+            pets.syncDataToCloud(),
+            shop.fetchProducts(),
+            content.loadClinicsAndArticles(),
+          ]);
+        },
+        child: LayoutBuilder(
+          builder: (context, box) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.symmetric(
+              horizontal: box.maxWidth > 900
+                  ? (box.maxWidth - 900) / 2 + 24
+                  : 22,
+              vertical: 12,
+            ),
+            children: [
+              const Text(
+                'MỘT NGÀY THẬT ĐÁNG YÊU',
+                style: TextStyle(
+                  color: AppTheme.secondary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Chào ${auth.user?.displayName ?? 'bạn'}!',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Cùng chăm sóc những người bạn nhỏ của bạn.',
+                style: TextStyle(color: AppTheme.textLight),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF6B6B), Color(0xFFFF8E72)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFF6B6B).withOpacity(0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  color: AppTheme.darkBackground,
+                  borderRadius: BorderRadius.circular(28),
                 ),
-                child: Row(
+                child: Stack(
                   children: [
-                    Expanded(
+                    Positioned(
+                      right: -35,
+                      top: -35,
+                      child: Container(
+                        width: 170,
+                        height: 170,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF325447),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 16,
+                      top: 26,
+                      child: Transform.rotate(
+                        angle: -.25,
+                        child: const Icon(
+                          Icons.pets_rounded,
+                          size: 78,
+                          color: Color(0xFF83A48B),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(26),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text(
-                              'ƯU ĐÃI THÀNH VIÊN',
-                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
                           const Text(
-                            'Giảm 10% Cho Đơn Hàng Đầu Tiên',
+                            'LỚN LÊN CÙNG YÊU THƯƠNG',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFD3DEC0),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.3,
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 16),
+                          const Padding(
+                            padding: EdgeInsets.only(right: 56),
+                            child: Text(
+                              'Chăm sóc mỗi ngày,\nyêu thương trọn vẹn.',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 27,
+                                fontWeight: FontWeight.w800,
+                                height: 1.25,
+                                letterSpacing: -.6,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           const Text(
-                            'Nhập mã PAWPALS10 khi thanh toán',
-                            style: TextStyle(color: Colors.white70, fontSize: 12),
+                            'Mã PAWPALS10 giảm 10% tiền hàng\nMiễn phí giao hàng từ 300.000đ',
+                            style: TextStyle(
+                              color: Color(0xFFD3DEC0),
+                              fontSize: 12,
+                              height: 1.7,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: () => onTabChange(2),
+                            label: const Text('Khám phá cửa hàng'),
+                            icon: const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 18,
+                            ),
+                            iconAlignment: IconAlignment.end,
                           ),
                         ],
                       ),
                     ),
-                    const Icon(Icons.redeem_rounded, size: 56, color: Colors.white),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-
-            // Quick Actions
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildQuickAction(
-                    icon: Icons.add_circle_outline,
-                    color: const Color(0xFFFF6B6B),
-                    label: 'Thêm Pet',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const AddPetScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.emergency_outlined,
-                    color: Colors.redAccent,
-                    label: 'Cấp cứu 24/7',
-                    onTap: () => onTabChange(3), // Sang tab clinic
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.storefront_outlined,
-                    color: const Color(0xFF4ECDC4),
-                    label: 'Cửa hàng',
-                    onTap: () => onTabChange(2), // Sang tab shop
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.alarm_rounded,
-                    color: const Color(0xFFFFBE0B),
-                    label: 'Nhắc nhở',
-                    onTap: () => onTabChange(1), // Sang tab pet
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Lịch nhắc nhở hôm nay (Từ SQFlite)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Lịch Nhắc Hôm Nay (SQFlite)',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                  ),
-                  InkWell(
-                    onTap: () => onTabChange(1),
-                    child: const Text('Xem tất cả', style: TextStyle(color: Color(0xFFFF6B6B), fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            if (pet.reminders.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Center(
-                    child: Text('Hôm nay bé cưng không có lịch nhắc nào!', style: TextStyle(color: Colors.grey)),
-                  ),
-                ),
-              )
-            else
-              SizedBox(
-                height: 94,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: pet.reminders.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final rem = pet.reminders[index];
-                    return Container(
-                      width: 220,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFF6B6B).withOpacity(0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.alarm_on, color: Color(0xFFFF6B6B), size: 20),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  rem.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Lúc ${rem.reminderTime}',
-                                  style: const TextStyle(color: Color(0xFF4ECDC4), fontWeight: FontWeight.bold, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            const SizedBox(height: 24),
-
-            // Sản phẩm nổi bật (Từ Firestore)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Sản Phẩm Đang Hot (Firestore)',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                  ),
-                  InkWell(
-                    onTap: () => onTabChange(2),
-                    child: const Text('Mua sắm', style: TextStyle(color: Color(0xFFFF6B6B), fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            SizedBox(
-              height: 220,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                scrollDirection: Axis.horizontal,
-                itemCount: shop.products.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (context, index) {
-                  final prod = shop.products[index];
-                  return Container(
-                    width: 150,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.grey.shade200),
+              const SectionHeading('Bạn muốn làm gì?'),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final actions = [
+                    (
+                      Icons.add_rounded,
+                      'Thêm thú cưng',
+                      const Color(0xFFFBEDE4),
+                      AppTheme.primary,
+                      addPet,
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (context) => ProductDetailScreen(product: prod)),
-                        );
-                      },
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Image.network(
-                              prod.imageUrl,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.pets, color: Colors.grey)),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  prod.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  currency.format(prod.price),
-                                  style: const TextStyle(
-                                    color: Color(0xFFFF6B6B),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
+                    (
+                      Icons.alarm_rounded,
+                      'Nhắc lịch',
+                      AppTheme.mint,
+                      AppTheme.secondary,
+                      () => onTabChange(1),
+                    ),
+                    (
+                      Icons.medical_services_outlined,
+                      'Phòng khám',
+                      const Color(0xFFEDF0FA),
+                      const Color(0xFF697BB0),
+                      () => onTabChange(3),
+                    ),
+                    (
+                      Icons.shopping_bag_outlined,
+                      'Mua sắm',
+                      const Color(0xFFFBF2DE),
+                      const Color(0xFFAE8433),
+                      () => onTabChange(2),
+                    ),
+                  ];
+                  final columns = constraints.maxWidth < 340 ? 2 : 4;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: actions
+                        .map(
+                          (a) => SizedBox(
+                            width:
+                                (constraints.maxWidth - (columns - 1) * 10) /
+                                columns,
+                            child: Material(
+                              color: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                side: const BorderSide(color: AppTheme.line),
+                              ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: a.$5,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                    horizontal: 4,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(13),
+                                        decoration: BoxDecoration(
+                                          color: a.$3,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          a.$1,
+                                          color: a.$4,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        a.$2,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
+                        )
+                        .toList(),
                   );
                 },
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // Cẩm nang chăm sóc thú cưng (Từ REST API)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: const Text(
-                'Cẩm Nang Chăm Sóc Thú Cưng (REST API)',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              SectionHeading(
+                'Gia đình nhỏ của bạn',
+                action: 'Xem tất cả',
+                onTap: () => onTabChange(1),
               ),
-            ),
-            const SizedBox(height: 10),
-
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: clinic.articles.length,
-              itemBuilder: (context, index) {
-                final art = clinic.articles[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.network(
-                            art.thumbnailUrl,
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              width: 80,
-                              height: 80,
-                              color: Colors.grey.shade200,
-                              child: const Icon(Icons.article, color: Colors.grey),
-                            ),
+              if (pets.pets.isEmpty)
+                CareEmptyState(
+                  icon: Icons.pets_rounded,
+                  title: 'Thêm một người bạn nhỏ',
+                  message: 'Lưu hồ sơ và theo dõi hành trình lớn lên của bé.',
+                  action: 'Thêm thú cưng',
+                  onTap: addPet,
+                ),
+              ...pets.pets
+                  .take(3)
+                  .map(
+                    (pet) => Card(
+                      child: ListTile(
+                        leading: PetAvatar(pet: pet, radius: 27),
+                        title: Text(pet.name),
+                        subtitle: Text('${pet.breed} • ${pet.weight} kg'),
+                        trailing: const Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 20,
+                        ),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PetDetailScreen(pet: pet),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF4ECDC4).withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(art.category, style: const TextStyle(fontSize: 10, color: Color(0xFF1B998B), fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                art.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${art.publishedAt} • ${art.readTimeMinutes} phút đọc',
-                                style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                );
-              },
-            ),
-          ],
+              SectionHeading(
+                'Lịch nhắc đang bật',
+                action: '${reminders.length} lịch',
+                onTap: () => onTabChange(1),
+              ),
+              if (pets.isLoading || pets.isSyncing)
+                const LinearProgressIndicator(),
+              if (pets.error != null)
+                Text(pets.error!, style: const TextStyle(color: Colors.red)),
+              if (pets.notificationError != null)
+                Text(
+                  pets.notificationError!,
+                  style: const TextStyle(color: Colors.orange),
+                ),
+              if (reminders.isEmpty)
+                CareEmptyState(
+                  icon: Icons.event_available_outlined,
+                  title: 'Sẵn sàng cho một ngày mới',
+                  message: 'Chưa có lịch nhắc. Thêm lịch ở mục Thú cưng.',
+                  action: 'Quản lý lịch nhắc',
+                  onTap: () => onTabChange(1),
+                ),
+              ...reminders.map(
+                (r) => Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: AppTheme.mint,
+                      child: Icon(
+                        Icons.alarm_rounded,
+                        color: AppTheme.secondary,
+                      ),
+                    ),
+                    title: Text(r.title),
+                    subtitle: const Text('Nhắc bạn mỗi ngày'),
+                    trailing: Text(
+                      r.reminderTime,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.secondary,
+                        fontSize: 18,
+                      ),
+                    ),
+                    onTap: () => onTabChange(1),
+                  ),
+                ),
+              ),
+              SectionHeading(
+                'Sản phẩm nổi bật',
+                action: 'Xem tất cả',
+                onTap: () => onTabChange(2),
+              ),
+              if (shop.isLoading) const LinearProgressIndicator(),
+              if (shop.error != null)
+                Text(shop.error!, style: const TextStyle(color: Colors.red)),
+              if (!shop.isLoading && shop.featured.isEmpty)
+                const CareEmptyState(
+                  icon: Icons.storefront_outlined,
+                  title: 'Góc mua sắm cho bé',
+                  message: 'Cửa hàng chưa cập nhật sản phẩm nổi bật.',
+                ),
+              if (shop.featured.isNotEmpty)
+                LayoutBuilder(
+                  builder: (context, constraints) => GridView.count(
+                    crossAxisCount: constraints.maxWidth < 320
+                        ? 1
+                        : constraints.maxWidth > 650
+                        ? 4
+                        : 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: .62,
+                    children: shop.featured
+                        .take(4)
+                        .map((p) => ProductCard(product: p))
+                        .toList(),
+                  ),
+                ),
+              const SectionHeading('Cẩm nang chăm sóc'),
+              if (content.isLoading) const LinearProgressIndicator(),
+              if (content.error != null)
+                Text(content.error!, style: const TextStyle(color: Colors.red)),
+              if (!content.isLoading && content.articles.isEmpty)
+                const CareEmptyState(
+                  icon: Icons.menu_book_outlined,
+                  title: 'Hiểu bé thêm mỗi ngày',
+                  message: 'Chưa có bài viết.',
+                ),
+              ...content.articles.map(
+                (article) => Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: AppTheme.mint,
+                      child: Icon(
+                        Icons.menu_book_rounded,
+                        color: AppTheme.secondary,
+                      ),
+                    ),
+                    title: Text(article.title),
+                    subtitle: Text(
+                      '${article.category} • ${article.readTimeMinutes} phút đọc',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _ArticleScreen(article: article),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildQuickAction({
-    required IconData icon,
-    required Color color,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 26),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
+class _ArticleScreen extends StatelessWidget {
+  final Article article;
+  const _ArticleScreen({required this.article});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(article.category)),
+    body: ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Text(article.title, style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 12),
+        Text(
+          '${article.author} • ${article.publishedAt}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          article.summary,
+          style: const TextStyle(fontWeight: FontWeight.w700, height: 1.7),
+        ),
+        const SizedBox(height: 16),
+        SelectableText(
+          article.content,
+          style: const TextStyle(fontSize: 16, height: 1.8),
+        ),
+      ],
+    ),
+  );
 }

@@ -1,236 +1,300 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../providers/pet_provider.dart';
-import '../../services/firebase_mock_service.dart';
-import '../auth/login_screen.dart';
+import '../../services/app_error.dart';
+import '../../services/notification_service.dart';
+import '../../theme/app_theme.dart';
+import 'orders_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
-
-  void _showOrderHistoryDialog(BuildContext context) async {
-    final orders = await FirebaseService.instance.getOrders();
-
-    if (!context.mounted) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        minChildSize: 0.4,
-        expand: false,
-        builder: (_, scrollController) => Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Lịch Sử Đơn Hàng (Firestore)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(ctx).pop()),
-                ],
-              ),
-              const Divider(),
-              Expanded(
-                child: orders.isEmpty
-                    ? const Center(child: Text('Bạn chưa có đơn đặt hàng nào.'))
-                    : ListView.builder(
-                        controller: scrollController,
-                        itemCount: orders.length,
-                        itemBuilder: (context, index) {
-                          final o = orders[index];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Color(0xFF4ECDC4),
-                                child: Icon(Icons.shopping_bag, color: Colors.white),
-                              ),
-                              title: Text('Đơn hàng: ${o['orderId']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              subtitle: Text('Trạng thái: ${o['status']}\nNgày: ${o['createdAt'].toString().substring(0, 10)}'),
-                              trailing: Text('${o['totalAmount']} đ', style: const TextStyle(color: Color(0xFFFF6B6B), fontWeight: FontWeight.bold)),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _edit(BuildContext context) async {
+    await showDialog(context: context, builder: (_) => const _ProfileDialog());
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final pet = context.watch<PetProvider>();
-    final user = auth.user;
-
+    final pets = context.watch<PetProvider>();
+    final user = auth.user!;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hồ Sơ Của Tôi'),
-      ),
-      body: SingleChildScrollView(
+      appBar: AppBar(title: const Text('Tài khoản')),
+      body: ListView(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Avatar & Name Card (Bài 4 mục 4.1.1.2 CircleAvatar)
-            Center(
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 46,
-                    backgroundColor: const Color(0xFFFF6B6B).withOpacity(0.15),
-                    backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
-                    child: user?.avatarUrl == null
-                        ? const Icon(Icons.person, size: 46, color: Color(0xFFFF6B6B))
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    user?.displayName ?? 'Chủ Nuôi Thú Cưng',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFBE0B).withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      user?.membershipLevel ?? 'VIP MEMBER',
-                      style: const TextStyle(color: Color(0xFFD48B00), fontWeight: FontWeight.bold, fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: AppTheme.mint,
+              borderRadius: BorderRadius.circular(28),
             ),
-            const SizedBox(height: 24),
-
-            // Thông tin chi tiết Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.email_outlined, color: Color(0xFFFF6B6B)),
-                      title: const Text('Email tài khoản', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                      subtitle: Text(user?.email ?? 'student@hutech.edu.vn', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.phone_outlined, color: Color(0xFF4ECDC4)),
-                      title: const Text('Số điện thoại', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                      subtitle: Text(user?.phoneNumber ?? '0901234567', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.location_on_outlined, color: Color(0xFFFFBE0B)),
-                      title: const Text('Địa chỉ nhận hàng mặc định', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                      subtitle: Text(user?.address ?? '475A Điện Biên Phủ, P.25, Bình Thạnh, TP.HCM', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    ),
-                  ],
+            child: Column(
+              children: [
+                const CircleAvatar(
+                  radius: 38,
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.person_outline_rounded,
+                    size: 42,
+                    color: AppTheme.secondary,
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Các chức năng tiện ích
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.receipt_long_outlined, color: Colors.blueAccent),
-                    title: const Text('Lịch sử đơn mua hàng (Firestore)', style: TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _showOrderHistoryDialog(context),
+                const SizedBox(height: 14),
+                Text(
+                  user.displayName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.cloud_upload_outlined, color: Color(0xFF4ECDC4)),
-                    title: const Text('Sao lưu dữ liệu SQFlite lên mây', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text('Đang quản lý ${pet.pets.length} bé cưng'),
-                    trailing: pet.isSyncing
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.sync_rounded),
-                    onTap: () async {
-                      final ok = await pet.syncDataToCloud();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(ok ? 'Đồng bộ dữ liệu thú cưng lên Firebase thành công!' : 'Thất bại'),
-                          backgroundColor: const Color(0xFF4ECDC4),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.school_outlined, color: Colors.deepPurpleAccent),
-                    title: const Text('Thông tin đồ án môn học', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text('Lập trình trên Thiết bị di động (CMP177)'),
-                    onTap: () {
-                      showAboutDialog(
-                        context: context,
-                        applicationName: 'PawPals App',
-                        applicationVersion: '1.0.0+1',
-                        applicationLegalese: 'Đồ án môn học CMP177 - HUTECH 2024\nBiên soạn: ThS. Bùi Phú Khuyên\nTích hợp: Flutter, Firebase, SQFlite, REST API',
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Nút Đăng xuất
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  side: const BorderSide(color: Colors.redAccent),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('ĐĂNG XUẤT', style: TextStyle(fontWeight: FontWeight.bold)),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Xác nhận đăng xuất?'),
-                      content: const Text('Bạn có chắc chắn muốn đăng xuất tài khoản?'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('HỦY')),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                          onPressed: () async {
-                            Navigator.of(ctx).pop();
-                            await auth.logout();
-                            if (!context.mounted) return;
-                            Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (context) => const LoginScreen()),
-                              (route) => false,
+                const SizedBox(height: 4),
+                Text(
+                  user.email,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppTheme.textLight),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Cùng bé lớn lên mỗi ngày',
+                  style: TextStyle(
+                    color: AppTheme.secondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (auth.error != null)
+            Text(auth.error!, style: const TextStyle(color: Colors.orange)),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Chỉnh sửa thông tin'),
+                  subtitle: Text(
+                    '${user.phoneNumber ?? 'Chưa có số điện thoại'}\n${user.address ?? 'Chưa có địa chỉ'}',
+                  ),
+                  onTap: () => _edit(context),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.shopping_bag_outlined),
+                  title: const Text('Đơn hàng của tôi'),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const OrdersScreen()),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.cloud_sync),
+                  title: const Text('Đồng bộ và khôi phục dữ liệu'),
+                  subtitle: Text(
+                    pets.isSyncing
+                        ? 'Đang đồng bộ…'
+                        : '${pets.pendingCount} thay đổi đang chờ',
+                  ),
+                  onTap: pets.isSyncing
+                      ? null
+                      : () async {
+                          final ok = await pets.syncDataToCloud();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Đồng bộ thành công.'
+                                      : pets.syncError ?? 'Chưa thể đồng bộ.',
+                                ),
+                              ),
                             );
-                          },
-                          child: const Text('ĐĂNG XUẤT'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                          }
+                        },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.lock_reset),
+                  title: const Text('Gửi email đổi mật khẩu'),
+                  onTap: auth.isLoading
+                      ? null
+                      : () async {
+                          final ok = await auth.resetPassword(user.email);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Đã gửi hướng dẫn đổi mật khẩu vào email.'
+                                      : auth.error ?? 'Không gửi được.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('Về PawPals'),
+                  onTap: () => showAboutDialog(
+                    context: context,
+                    applicationName: 'PawPals',
+                    applicationVersion: '1.0.0',
+                    applicationLegalese: 'Ứng dụng quản lý thú cưng, sổ sức khỏe, nhắc lịch và mua sắm.',
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.logout),
+            label: const Text('Đăng xuất'),
+            onPressed: pets.isSyncing || pets.isLoading
+                ? null
+                : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Đăng xuất?'),
+                        content: Text(
+                          pets.pendingCount > 0
+                              ? 'Bạn còn ${pets.pendingCount} thay đổi chưa đồng bộ. Dữ liệu vẫn được giữ trên máy cho tài khoản này. Nên đồng bộ trước nếu bạn sắp đổi thiết bị.'
+                              : 'Thông báo của tài khoản này sẽ tạm dừng trên thiết bị.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Quay lại'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Đăng xuất'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                    try {
+                      await NotificationService.instance.clear().catchError(
+                        (Object _) {},
+                      );
+                      await auth.logout();
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(errorMessage(e))),
+                        );
+                      }
+                    }
+                  },
+          ),
+        ],
       ),
     );
   }
+}
+
+class _ProfileDialog extends StatefulWidget {
+  const _ProfileDialog();
+  @override
+  State<_ProfileDialog> createState() => _ProfileDialogState();
+}
+
+class _ProfileDialogState extends State<_ProfileDialog> {
+  final _form = GlobalKey<FormState>();
+  late final TextEditingController _name, _phone, _address;
+  bool _saving = false;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    final user = context.read<AuthProvider>().user!;
+    _name = TextEditingController(text: user.displayName);
+    _phone = TextEditingController(text: user.phoneNumber);
+    _address = TextEditingController(text: user.address);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _address.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_form.currentState!.validate()) return;
+    setState(() => _saving = true);
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.updateProfile(
+      auth.user!.copyWith(
+        displayName: _name.text.trim(),
+        phoneNumber: _phone.text.trim(),
+        address: _address.text.trim(),
+      ),
+    );
+    if (!mounted) return;
+    if (ok) {
+      Navigator.pop(context);
+    } else {
+      setState(() {
+        _saving = false;
+        _error = auth.error;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Thông tin cá nhân'),
+    content: SingleChildScrollView(
+      child: Form(
+        key: _form,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _name,
+              maxLength: 80,
+              decoration: const InputDecoration(labelText: 'Họ tên'),
+              validator: (v) =>
+                  (v?.trim().isNotEmpty ?? false) ? null : 'Nhập họ tên',
+            ),
+            TextFormField(
+              controller: _phone,
+              maxLength: 13,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Điện thoại'),
+              validator: (v) =>
+                  v == null ||
+                      v.isEmpty ||
+                      RegExp(r'^\+?[0-9]{9,12}$').hasMatch(v.trim())
+                  ? null
+                  : 'Số điện thoại không hợp lệ',
+            ),
+            TextFormField(
+              controller: _address,
+              maxLength: 300,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Địa chỉ'),
+            ),
+            if (_error != null)
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.pop(context),
+        child: const Text('Hủy'),
+      ),
+      ElevatedButton(
+        onPressed: _saving ? null : _save,
+        child: Text(_saving ? 'Đang lưu…' : 'Lưu'),
+      ),
+    ],
+  );
 }

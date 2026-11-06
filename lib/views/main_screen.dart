@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/pet_provider.dart';
+import '../theme/app_theme.dart';
 import '../providers/shop_provider.dart';
 import '../providers/clinic_provider.dart';
 import 'home/home_screen.dart';
@@ -47,43 +49,42 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _onTabChange,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFFFF6B6B),
-        unselectedItemColor: Colors.grey.shade500,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home_rounded),
-            label: 'Trang chủ',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.pets_outlined),
-            activeIcon: Icon(Icons.pets_rounded),
-            label: 'Thú cưng',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.storefront_outlined),
-            activeIcon: Icon(Icons.storefront_rounded),
-            label: 'Cửa hàng',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.local_hospital_outlined),
-            activeIcon: Icon(Icons.local_hospital_rounded),
-            label: 'Phòng khám',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline_rounded),
-            activeIcon: Icon(Icons.person_rounded),
-            label: 'Tài khoản',
-          ),
-        ],
+      body: IndexedStack(index: _currentIndex, children: pages),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppTheme.line)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: _onTabChange,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: 'Trang chủ',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.pets_outlined),
+              selectedIcon: Icon(Icons.pets_rounded),
+              label: 'Thú cưng',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.storefront_outlined),
+              selectedIcon: Icon(Icons.storefront_rounded),
+              label: 'Cửa hàng',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.local_hospital_outlined),
+              selectedIcon: Icon(Icons.local_hospital_rounded),
+              label: 'Phòng khám',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Tài khoản',
+            ),
+          ],
+        ),
       ),
     );
   }

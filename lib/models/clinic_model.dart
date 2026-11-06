@@ -36,7 +36,11 @@ class Clinic {
       rating: (json['rating'] as num?)?.toDouble() ?? 5.0,
       isOpen247: (json['isOpen24_7'] as bool?) ?? false,
       openHours: (json['openHours'] as String?) ?? "08:00 - 21:00",
-      services: (json['services'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      services:
+          (json['services'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
       distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0.0,
     );
   }

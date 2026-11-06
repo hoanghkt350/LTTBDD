@@ -1,298 +1,246 @@
-import 'dart:io';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+
 import '../../models/pet_model.dart';
 import '../../providers/pet_provider.dart';
+import '../../services/app_error.dart';
+import 'pet_avatar.dart';
 
 class AddPetScreen extends StatefulWidget {
-  const AddPetScreen({super.key});
-
+  final Pet? pet;
+  const AddPetScreen({super.key, this.pet});
   @override
   State<AddPetScreen> createState() => _AddPetScreenState();
 }
 
 class _AddPetScreenState extends State<AddPetScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _breedController = TextEditingController();
-  final _weightController = TextEditingController();
-  final _microchipController = TextEditingController();
-
-  String _selectedSpecies = 'Chó';
-  String _selectedGender = 'Đực';
-  DateTime _birthDate = DateTime.now().subtract(const Duration(days: 365));
-  File? _imageFile;
-  final ImagePicker _picker = ImagePicker();
+  final _form = GlobalKey<FormState>();
+  late final TextEditingController _name, _breed, _weight, _chip;
+  late String _species, _gender;
+  late DateTime _birth;
+  String? _avatar;
+  bool _saving = false;
+  @override
+  void initState() {
+    super.initState();
+    final pet = widget.pet;
+    _name = TextEditingController(text: pet?.name);
+    _breed = TextEditingController(text: pet?.breed);
+    _weight = TextEditingController(text: pet?.weight.toString());
+    _chip = TextEditingController(text: pet?.microchipId);
+    _species = pet?.species ?? 'Chó';
+    _gender = pet?.gender ?? 'Đực';
+    _birth = DateTime.tryParse(pet?.birthDate ?? '') ?? DateTime.now();
+    _avatar = pet?.avatarCloudUrl;
+  }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _breedController.dispose();
-    _weightController.dispose();
-    _microchipController.dispose();
+    for (final c in [_name, _breed, _weight, _chip]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  // Chọn ảnh qua ImagePicker (Bài 5 mục 5.2.4.2)
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final picked = await _picker.pickImage(source: source, imageQuality: 80);
-      if (picked != null) {
-        setState(() {
-          _imageFile = File(picked.path);
-        });
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi chọn ảnh: $e')),
-      );
-    }
-  }
-
-  void _showImageSourceDialog() {
-    showModalBottomSheet(
+  Future<void> _photo() async {
+    final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (ctx) => SafeArea(
-        child: Wrap(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFFFF6B6B)),
-              title: const Text('Chụp ảnh từ Camera'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _pickImage(ImageSource.camera);
-              },
+              leading: const Icon(Icons.photo),
+              title: const Text('Chọn từ thư viện'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF4ECDC4)),
-              title: const Text('Chọn ảnh từ Thư viện'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _pickImage(ImageSource.gallery);
-              },
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Chụp ảnh'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
             ),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _selectBirthDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _birthDate,
-      firstDate: DateTime(2010),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      setState(() => _birthDate = picked);
+    if (source == null) return;
+    try {
+      final file = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 480,
+        maxHeight: 480,
+        imageQuality: 60,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 180000) {
+        throw StateError('Ảnh quá lớn. Vui lòng chọn ảnh nhỏ hơn.');
+      }
+      if (mounted) {
+        setState(
+          () => _avatar = 'data:image/jpeg;base64,${base64Encode(bytes)}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorMessage(e))));
+      }
     }
   }
 
-  void _handleSave() {
-    if (_formKey.currentState!.validate()) {
-      final weight = double.tryParse(_weightController.text) ?? 1.0;
-      final dateFormat = DateFormat('yyyy-MM-dd');
-
-      final newPet = Pet(
-        name: _nameController.text.trim(),
-        species: _selectedSpecies,
-        breed: _breedController.text.trim(),
-        gender: _selectedGender,
-        birthDate: dateFormat.format(_birthDate),
-        weight: weight,
-        microchipId: _microchipController.text.trim().isEmpty ? null : _microchipController.text.trim(),
-        avatarPath: _imageFile?.path,
-        avatarCloudUrl: _selectedSpecies == 'Chó'
-            ? 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=400&q=80'
-            : 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=400&q=80',
-        isSynced: 0,
+  Future<void> _save() async {
+    if (_saving || !_form.currentState!.validate()) return;
+    setState(() => _saving = true);
+    final provider = context.read<PetProvider>();
+    try {
+      final pet = Pet(
+        id: widget.pet?.id,
+        serverId: widget.pet?.serverId,
+        name: _name.text.trim(),
+        species: _species,
+        breed: _breed.text.trim(),
+        gender: _gender,
+        birthDate: DateFormat('yyyy-MM-dd').format(_birth),
+        weight: double.parse(_weight.text.replaceAll(',', '.')),
+        microchipId: _chip.text.trim(),
+        avatarCloudUrl: _avatar,
       );
-
-      context.read<PetProvider>().addPet(newPet);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đã lưu hồ sơ thú cưng vào SQFlite thành công!'),
-          backgroundColor: Color(0xFF4ECDC4),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      Navigator.of(context).pop();
+      if (widget.pet == null) {
+        await provider.addPet(pet);
+      } else {
+        await provider.updatePet(pet);
+      }
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorMessage(e))));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd/MM/yyyy');
-
+    final preview = Pet(
+      name: '',
+      species: '',
+      breed: '',
+      gender: '',
+      birthDate: '',
+      weight: 1,
+      avatarCloudUrl: _avatar,
+    );
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Thêm Hồ Sơ Thú Cưng'),
+        title: Text(widget.pet == null ? 'Thêm thú cưng' : 'Chỉnh sửa hồ sơ'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
-          key: _formKey,
+          key: _form,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Avatar Picker
-              Center(
-                child: Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 54,
-                      backgroundColor: const Color(0xFFFF6B6B).withOpacity(0.12),
-                      backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
-                      child: _imageFile == null
-                          ? const Icon(Icons.pets, size: 54, color: Color(0xFFFF6B6B))
-                          : null,
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: InkWell(
-                        onTap: _showImageSourceDialog,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFF6B6B),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              GestureDetector(
+                onTap: _saving ? null : _photo,
+                child: PetAvatar(pet: preview, radius: 52),
               ),
-              const SizedBox(height: 24),
-
-              // Name
+              TextButton(
+                onPressed: _saving ? null : _photo,
+                child: const Text('Chọn ảnh thú cưng'),
+              ),
               TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Tên thú cưng *',
-                  prefixIcon: Icon(Icons.badge_outlined),
-                  hintText: 'Ví dụ: Milo, Bông, Miu...',
-                ),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Vui lòng nhập tên bé' : null,
+                controller: _name,
+                maxLength: 80,
+                decoration: const InputDecoration(labelText: 'Tên thú cưng'),
+                validator: (v) => (v?.trim().isNotEmpty ?? false)
+                    ? null
+                    : 'Nhập tên thú cưng',
               ),
-              const SizedBox(height: 16),
-
-              // Species & Gender Row
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedSpecies,
-                      decoration: const InputDecoration(
-                        labelText: 'Loài *',
-                        prefixIcon: Icon(Icons.category_outlined),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'Chó', child: Text('Chó')),
-                        DropdownMenuItem(value: 'Mèo', child: Text('Mèo')),
-                        DropdownMenuItem(value: 'Chim', child: Text('Chim')),
-                        DropdownMenuItem(value: 'Hamster', child: Text('Hamster')),
-                        DropdownMenuItem(value: 'Khác', child: Text('Khác')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedSpecies = val);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedGender,
-                      decoration: const InputDecoration(
-                        labelText: 'Giới tính *',
-                        prefixIcon: Icon(Icons.transgender_outlined),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'Đực', child: Text('Đực')),
-                        DropdownMenuItem(value: 'Cái', child: Text('Cái')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedGender = val);
-                      },
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _species,
+                decoration: const InputDecoration(labelText: 'Loài'),
+                items: ['Chó', 'Mèo', 'Chim', 'Thỏ', 'Khác']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (v) => setState(() => _species = v!),
               ),
-              const SizedBox(height: 16),
-
-              // Breed
+              const SizedBox(height: 12),
               TextFormField(
-                controller: _breedController,
-                decoration: const InputDecoration(
-                  labelText: 'Giống loài *',
-                  prefixIcon: Icon(Icons.cruelty_free_outlined),
-                  hintText: 'Poodle, Corgi, Mèo Anh...',
-                ),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Vui lòng nhập giống' : null,
+                controller: _breed,
+                maxLength: 100,
+                decoration: const InputDecoration(labelText: 'Giống'),
+                validator: (v) => (v?.trim().isNotEmpty ?? false)
+                    ? null
+                    : 'Nhập giống hoặc “Chưa rõ”',
               ),
-              const SizedBox(height: 16),
-
-              // Weight & Birth Date Row
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _weightController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: 'Cân nặng (kg) *',
-                        prefixIcon: Icon(Icons.monitor_weight_outlined),
-                      ),
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) return 'Nhập cân nặng';
-                        if (double.tryParse(val) == null) return 'Phải là số';
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: InkWell(
-                      onTap: _selectBirthDate,
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Ngày sinh',
-                          prefixIcon: Icon(Icons.cake_outlined),
-                        ),
-                        child: Text(dateFormat.format(_birthDate)),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _gender,
+                decoration: const InputDecoration(labelText: 'Giới tính'),
+                items: ['Đực', 'Cái', 'Chưa rõ']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (v) => setState(() => _gender = v!),
               ),
-              const SizedBox(height: 16),
-
-              // Microchip
+              ListTile(
+                title: const Text('Ngày sinh'),
+                subtitle: Text(DateFormat('dd/MM/yyyy').format(_birth)),
+                trailing: const Icon(Icons.calendar_today),
+                onTap: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: _birth,
+                    firstDate: DateTime(1980),
+                    lastDate: DateTime.now(),
+                  );
+                  if (date != null && mounted) setState(() => _birth = date);
+                },
+              ),
               TextFormField(
-                controller: _microchipController,
+                controller: _weight,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Cân nặng (kg)'),
+                validator: (v) {
+                  final weight = double.tryParse(
+                    (v ?? '').replaceAll(',', '.'),
+                  );
+                  return weight == null ||
+                          !weight.isFinite ||
+                          weight <= 0 ||
+                          weight > 500
+                      ? 'Cân nặng phải lớn hơn 0 và tối đa 500 kg'
+                      : null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _chip,
+                maxLength: 100,
                 decoration: const InputDecoration(
-                  labelText: 'Mã số vi chip (Tùy chọn)',
-                  prefixIcon: Icon(Icons.qr_code_outlined),
-                  hintText: 'VN-123456...',
+                  labelText: 'Mã microchip (không bắt buộc)',
                 ),
               ),
-              const SizedBox(height: 30),
-
-              // Button Save
-              ElevatedButton.icon(
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('LƯU HỒ SƠ THÚ CƯNG'),
-                onPressed: _handleSave,
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  child: Text(_saving ? 'Đang lưu…' : 'LƯU HỒ SƠ'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Hồ sơ được lưu trên máy. Bấm Đồng bộ để sao lưu lên tài khoản của bạn.',
               ),
             ],
           ),

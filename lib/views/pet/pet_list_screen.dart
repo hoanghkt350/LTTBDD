@@ -1,332 +1,199 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/pet_provider.dart';
-import '../../models/reminder_model.dart';
+import '../../services/app_error.dart';
+import '../../widgets/care_widgets.dart';
 import 'add_pet_screen.dart';
 import 'pet_detail_screen.dart';
+import 'pet_avatar.dart';
+import 'reminder_dialog.dart';
 
 class PetListScreen extends StatelessWidget {
   const PetListScreen({super.key});
-
-  void _showAddReminderDialog(BuildContext context, PetProvider provider) {
-    if (provider.pets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng thêm ít nhất một thú cưng trước!')),
-      );
-      return;
+  Future<void> _action(
+    BuildContext context,
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorMessage(e))));
+      }
     }
-
-    final titleController = TextEditingController();
-    TimeOfDay selectedTime = const TimeOfDay(hour: 8, minute: 0);
-    int selectedPetId = provider.pets.first.id!;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Thêm Nhắc Nhở Thông Minh', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<int>(
-                value: selectedPetId,
-                decoration: const InputDecoration(labelText: 'Chọn thú cưng'),
-                items: provider.pets
-                    .map((p) => DropdownMenuItem(value: p.id, child: Text(p.name)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) setDialogState(() => selectedPetId = val);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Nội dung nhắc *',
-                  hintText: 'Cho ăn hạt, Uống thuốc tim...',
-                ),
-              ),
-              const SizedBox(height: 14),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Giờ nhắc nhở:'),
-                trailing: TextButton.icon(
-                  icon: const Icon(Icons.access_time),
-                  label: Text(selectedTime.format(context), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  onPressed: () async {
-                    final picked = await showTimePicker(context: context, initialTime: selectedTime);
-                    if (picked != null) {
-                      setDialogState(() => selectedTime = picked);
-                    }
-                  },
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('HỦY')),
-            ElevatedButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) return;
-                final formattedTime =
-                    '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}';
-
-                provider.addReminder(Reminder(
-                  petId: selectedPetId,
-                  title: titleController.text.trim(),
-                  reminderTime: formattedTime,
-                  notificationId: DateTime.now().millisecondsSinceEpoch % 100000,
-                  repeatInterval: 'DAILY',
-                ));
-
-                Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Đã tạo lịch nhắc lúc $formattedTime!'),
-                    backgroundColor: const Color(0xFF4ECDC4),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              child: const Text('TẠO NHẮC NHỞ'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final petProvider = context.watch<PetProvider>();
-
+    final provider = context.watch<PetProvider>();
+    final locked = provider.isLoading || provider.isSyncing;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Thú Cưng Của Tôi'),
+        title: const Text('Thú cưng của tôi'),
         actions: [
-          // Nút Đồng bộ SQFlite lên Firebase
           IconButton(
-            tooltip: 'Đồng bộ lên Firebase Cloud',
-            icon: petProvider.isSyncing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(color: Color(0xFFFF6B6B), strokeWidth: 2),
-                  )
-                : const Icon(Icons.cloud_sync_outlined, color: Color(0xFF4ECDC4)),
-            onPressed: petProvider.isSyncing
+            tooltip: 'Đồng bộ và khôi phục từ cloud',
+            icon: const Icon(Icons.cloud_sync),
+            onPressed: locked
                 ? null
                 : () async {
-                    final ok = await petProvider.syncDataToCloud();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(ok
-                            ? '🎉 Đã sao lưu dữ liệu SQFlite lên Firebase Cloud thành công!'
-                            : 'Đồng bộ thất bại!'),
-                        backgroundColor: const Color(0xFF4ECDC4),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
+                    final ok = await provider.syncDataToCloud();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok
+                                ? 'Đã đồng bộ hồ sơ, sổ sức khỏe và lịch nhắc.'
+                                : provider.syncError ?? 'Chưa thể đồng bộ.',
+                          ),
+                        ),
+                      );
+                    }
                   },
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: const Color(0xFFFF6B6B),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('Thêm Thú Cưng', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => const AddPetScreen()),
-          );
-        },
-      ),
-      body: petProvider.isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFFF6B6B)))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Danh sách thẻ Thú cưng
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Hồ Sơ Thú Cưng (${petProvider.pets.length})',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text('Lưu SQFlite', style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  if (petProvider.pets.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Column(
-                        children: [
-                          Icon(Icons.pets, size: 54, color: Colors.grey),
-                          SizedBox(height: 8),
-                          Text('Bạn chưa có bé thú cưng nào!', style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(height: 4),
-                          Text('Bấm nút "Thêm Thú Cưng" bên dưới để tạo hồ sơ đầu tiên.'),
-                        ],
-                      ),
-                    )
-                  else
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: petProvider.pets.length,
-                      itemBuilder: (context, index) {
-                        final pet = petProvider.pets[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (context) => PetDetailScreen(pet: pet)),
-                              );
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 34,
-                                    backgroundColor: const Color(0xFFFF6B6B).withOpacity(0.12),
-                                    backgroundImage: pet.avatarCloudUrl != null
-                                        ? NetworkImage(pet.avatarCloudUrl!)
-                                        : null,
-                                    child: pet.avatarCloudUrl == null
-                                        ? const Icon(Icons.pets, color: Color(0xFFFF6B6B), size: 30)
-                                        : null,
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Text(
-                                              pet.name,
-                                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: pet.gender == 'Đực' ? Colors.blue.shade50 : Colors.pink.shade50,
-                                                borderRadius: BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                pet.gender,
-                                                style: TextStyle(
-                                                  color: pet.gender == 'Đực' ? Colors.blue : Colors.pink,
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text('${pet.species} • ${pet.breed}', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                                        const SizedBox(height: 4),
-                                        Text('Cân nặng: ${pet.weight} kg • Sinh: ${pet.birthDate}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(Icons.chevron_right, color: Colors.grey),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                      ),
-                  const SizedBox(height: 28),
-
-                  // Lịch nhắc nhở (Reminders)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Nhắc Nhở Định Kỳ',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.add_alarm, size: 18),
-                        label: const Text('Thêm lịch'),
-                        onPressed: () => _showAddReminderDialog(context, petProvider),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  if (petProvider.reminders.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Center(
-                        child: Text('Chưa có lịch nhắc nhở nào.', style: TextStyle(color: Colors.grey)),
-                      ),
-                    )
-                  else
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: petProvider.reminders.length,
-                      itemBuilder: (context, index) {
-                        final rem = petProvider.reminders[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          child: SwitchListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                            secondary: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFF6B6B).withOpacity(0.12),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.alarm_on_rounded, color: Color(0xFFFF6B6B)),
-                            ),
-                            title: Text(rem.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                            subtitle: Text('Hàng ngày vào lúc: ${rem.reminderTime}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                            value: rem.isActive == 1,
-                            activeColor: const Color(0xFFFF6B6B),
-                            onChanged: (val) {
-                              if (rem.id != null) {
-                                petProvider.toggleReminder(rem.id!, val);
-                              }
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                ],
+        onPressed: locked
+            ? null
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddPetScreen()),
               ),
+        icon: const Icon(Icons.add),
+        label: const Text('Thêm thú cưng'),
+      ),
+      body: provider.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+              children: [
+                if (provider.isSyncing) const LinearProgressIndicator(),
+                if (provider.error != null)
+                  Text(
+                    provider.error!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                if (provider.syncError != null)
+                  Text(
+                    'Chưa đồng bộ: ${provider.syncError}',
+                    style: const TextStyle(color: Colors.orange),
+                  ),
+                if (provider.notificationError != null)
+                  Text(
+                    provider.notificationError!,
+                    style: const TextStyle(color: Colors.orange),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    '${provider.pets.length} hồ sơ • ${provider.pendingCount} thay đổi chờ đồng bộ',
+                  ),
+                ),
+                if (provider.pets.isEmpty)
+                  const CareEmptyState(
+                    icon: Icons.pets_rounded,
+                    title: 'Gia đình nhỏ bắt đầu từ đây',
+                    message: 'Thêm hồ sơ đầu tiên hoặc bấm Đồng bộ để khôi phục dữ liệu từ tài khoản.',
+                  ),
+                ...provider.pets.map(
+                  (pet) => Card(
+                    child: ListTile(
+                      leading: PetAvatar(pet: pet, radius: 26),
+                      title: Text(
+                        pet.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${pet.species} • ${pet.breed}\n${pet.weight} kg • ${pet.gender}',
+                      ),
+                      isThreeLine: true,
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PetDetailScreen(pet: pet),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Lịch nhắc hàng ngày',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_alarm),
+                      onPressed: locked || provider.pets.isEmpty
+                          ? null
+                          : () => showDialog(
+                              context: context,
+                              builder: (_) => const ReminderDialog(),
+                            ),
+                    ),
+                  ],
+                ),
+                if (provider.reminders.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('Chưa có lịch nhắc.'),
+                  ),
+                ...provider.reminders.map(
+                  (rem) => Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: Text(rem.title),
+                          subtitle: Text('Hàng ngày lúc ${rem.reminderTime}'),
+                          value: rem.isActive == 1,
+                          onChanged: locked
+                              ? null
+                              : (active) => _action(
+                                  context,
+                                  () =>
+                                      provider.toggleReminder(rem.id!, active),
+                                ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: locked
+                                  ? null
+                                  : () => showDialog(
+                                      context: context,
+                                      builder: (_) =>
+                                          ReminderDialog(reminder: rem),
+                                    ),
+                              child: const Text('Sửa'),
+                            ),
+                            TextButton(
+                              onPressed: locked
+                                  ? null
+                                  : () => _action(
+                                      context,
+                                      () => provider.deleteReminder(rem.id!),
+                                    ),
+                              child: const Text('Xóa'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
     );
   }

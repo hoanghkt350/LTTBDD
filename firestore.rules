@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owns(uid) { return signedIn() && request.auth.uid == uid; }
+    function lineTotal(items, index) {
+      return index < items.size() ? items[items.keys()[index]].price * items[items.keys()[index]].quantity : 0;
+    }
+    function validStockLine(items, index, orderId, cancelling) {
+      return index >= items.size() || checkedLine(items, items.keys()[index], orderId, cancelling);
+    }
+    function checkedLine(items, id, orderId, cancelling) {
+      let line = items[id];
+      let before = get(/databases/$(database)/documents/products/$(id)).data;
+      let after = getAfter(/databases/$(database)/documents/products/$(id)).data;
+      return line.keys().hasOnly(['name','price','quantity','imageUrl'])
+        && line.quantity is int && line.quantity >= 1 && line.quantity <= 99
+        && (cancelling || (line.price == before.price && line.name == before.name && line.imageUrl == before.imageUrl))
+        && after.stock == before.stock + (cancelling ? line.quantity : -line.quantity)
+        && after.stock >= 0 && after.lastOrderId == orderId && after.updatedAt == request.time;
+    }
+    function allStockLines(items, orderId, cancelling) {
+      return items is map && items.size() >= 1 && items.size() <= 5
+        && validStockLine(items,0,orderId,cancelling)
+        && validStockLine(items,1,orderId,cancelling)
+        && validStockLine(items,2,orderId,cancelling)
+        && validStockLine(items,3,orderId,cancelling)
+        && validStockLine(items,4,orderId,cancelling);
+    }
+    function validOrder(orderId) {
+      let o = request.resource.data;
+      let sum = lineTotal(o.items,0) + lineTotal(o.items,1) + lineTotal(o.items,2)
+        + lineTotal(o.items,3) + lineTotal(o.items,4);
+      let discount = o.voucher in ['PAWPALS10','HUTECH10'] ? math.round(sum * 0.1) : 0;
+      let shipping = sum >= 300000 || o.voucher == 'FREESHIP' ? 0 : 25000;
+      return o.keys().hasOnly(['orderId','userId','items','recipient','subtotal','discountAmount','shippingFee','totalAmount','voucher','status','paymentMethod','createdAt'])
+        && o.orderId == orderId && o.userId == request.auth.uid
+        && o.status == 'Chờ xác nhận' && o.paymentMethod == 'COD' && o.createdAt == request.time
+        && o.voucher in ['','PAWPALS10','HUTECH10','FREESHIP']
+        && o.recipient.keys().hasOnly(['name','phone','address'])
+        && o.recipient.name is string && o.recipient.name.size() > 0 && o.recipient.name.size() <= 80
+        && o.recipient.phone is string && o.recipient.phone.matches('^[+]?[0-9]{9,12}$')
+        && o.recipient.address is string && o.recipient.address.size() >= 8 && o.recipient.address.size() <= 300
+        && o.subtotal == sum && o.discountAmount == discount && o.shippingFee == shipping
+        && o.totalAmount == sum - discount + shipping
+        && allStockLines(o.items,orderId,false);
+    }
+    match /orders/{orderId} {
+      allow get: if signedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && validOrder(orderId);
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+        && resource.data.status == 'Chờ xác nhận' && request.resource.data.status == 'Đã hủy'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancelledAt'])
+        && request.resource.data.cancelledAt == request.time
+        && allStockLines(resource.data.items,orderId,true);
+      allow delete: if false;
+    }
+    match /products/{id} {
+      allow read: if signedIn();
+      // Only reserve or return stock as part of the same atomic order transaction.
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','lastOrderId','updatedAt'])
+        && request.resource.data.stock is int && request.resource.data.stock >= 0
+        && request.resource.data.updatedAt == request.time
+        && validProductStock(id);
+      function validProductStock(productId) {
+        let orderId = request.resource.data.lastOrderId;
+        let orderPath = /databases/$(database)/documents/orders/$(orderId);
+        let after = getAfter(orderPath).data;
+        return after.userId == request.auth.uid
+          && productId in after.items
+          && ((!exists(orderPath) && after.status == 'Chờ xác nhận' && after.createdAt == request.time
+            && request.resource.data.stock == resource.data.stock - after.items[productId].quantity)
+          || (exists(orderPath) && get(orderPath).data.status == 'Chờ xác nhận'
+            && after.status == 'Đã hủy' && after.cancelledAt == request.time
+            && request.resource.data.stock == resource.data.stock + after.items[productId].quantity));
+      }
+    }
+    match /clinics/{id} { allow read: if signedIn(); }
+    match /articles/{id} { allow read: if signedIn(); }
+    match /users/{uid} {
+      allow read: if owns(uid);
+      allow create, update: if owns(uid)
+        && request.resource.data.keys().hasOnly(['uid','email','displayName','phoneNumber','address','avatarUrl','membershipLevel'])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0 && request.resource.data.displayName.size() <= 80
+        && request.resource.data.membershipLevel == 'STANDARD';
+      match /{collection}/{id} {
+        allow read: if owns(uid) && collection in ['pets','health_records','reminders'];
+        allow create, update: if owns(uid) && collection in ['pets','health_records','reminders']
+          && request.resource.data.id is int && string(request.resource.data.id) == id
+          && request.resource.data.updatedAt == request.time
+          && (validTombstone() || validEntity(collection));
+        function validTombstone() {
+          return request.resource.data.keys().hasOnly(['id','deleted','updatedAt']) && request.resource.data.deleted == true;
+        }
+        function validEntity(collection) {
+          let d = request.resource.data;
+          return !('deleted' in d) &&
+            ((collection == 'pets' && d.name is string && d.name.size() > 0 && d.name.size() <= 80
+              && d.weight is number && d.weight > 0 && d.weight <= 500
+              && (d.avatar_cloud_url == null || (d.avatar_cloud_url is string && d.avatar_cloud_url.size() < 250000)))
+            || (collection == 'health_records' && d.pet_id is int && d.title is string && d.title.size() <= 150
+              && d.cost is number && d.cost >= 0)
+            || (collection == 'reminders' && d.pet_id is int && d.title is string && d.title.size() > 0
+              && d.title.size() <= 150 && d.reminder_time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+              && d.is_active in [0,1] && d.repeat_interval == 'DAILY'));
+        }
+      }
+    }
+  }
+}
