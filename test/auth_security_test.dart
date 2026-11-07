@@ -8,12 +8,15 @@ import 'package:pawpals_app/services/auth_validation.dart';
 import 'package:pawpals_app/services/firebase_service.dart';
 
 class _Token extends Fake implements fb.IdTokenResult {
+  _Token(this.admin);
+  final Object? admin;
   @override
-  Map<String, dynamic> get claims => {'email_verified': true};
+  Map<String, dynamic> get claims => {'email_verified': true, 'admin': admin};
 }
 
 class _User extends Fake implements fb.User {
-  _User(this.uid, {this.emailVerified = false});
+  _User(this.uid, {this.emailVerified = false, this.admin = false});
+  final Object? admin;
   @override
   final String uid;
   @override
@@ -23,7 +26,7 @@ class _User extends Fake implements fb.User {
   @override
   Future<fb.IdTokenResult> getIdTokenResult([
     bool forceRefresh = false,
-  ]) async => _Token();
+  ]) async => _Token(admin);
 }
 
 class _Auth extends Fake implements fb.FirebaseAuth {
@@ -54,6 +57,34 @@ class _Service extends Fake implements FirebaseService {
 Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
+  test('only a verified boolean admin token grants management access and logout clears it', () async {
+    final service = _Service();
+    final auth = AuthProvider(service: service);
+    await auth.checkAuthStatus();
+    for (final claim in [null, false, 'true', 1]) {
+      service.auth.changes.add(
+        _User('alice', emailVerified: true, admin: claim),
+      );
+      await _flush();
+      expect(auth.isAdmin, isFalse);
+    }
+    service.auth.changes.add(_User('alice', admin: true));
+    await _flush();
+    expect(auth.isAdmin, isFalse);
+    service.auth.changes.add(_User('alice', emailVerified: true, admin: true));
+    await _flush();
+    expect(auth.isAdmin, isTrue);
+    service.auth.changes.add(_User('alice', emailVerified: true));
+    await _flush();
+    expect(auth.isAdmin, isFalse);
+    service.auth.changes.add(_User('alice', emailVerified: true, admin: true));
+    await _flush();
+    await auth.logout();
+    await _flush();
+    expect(auth.isAdmin, isFalse);
+    auth.dispose();
+    await service.auth.changes.close();
+  });
   test('registration requires a strong password', () {
     for (final password in [
       '',

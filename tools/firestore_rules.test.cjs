@@ -1,7 +1,8 @@
 const { readFileSync } = require('node:fs');
+const assert = require('node:assert/strict');
 const { test, before, beforeEach, after } = require('node:test');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, writeBatch, serverTimestamp } = require('firebase/firestore');
+const { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp } = require('firebase/firestore');
 
 let env;
 before(async () => {
@@ -22,6 +23,13 @@ beforeEach(async () => {
 });
 after(async () => { if(env) await env.cleanup(); });
 const db = (uid, verified = true) => env.authenticatedContext(uid, {email:uid+'@example.com', email_verified:verified}).firestore();
+const adminDb = (verified = true, claim = true) => env.authenticatedContext('admin', {email:'admin@example.com',email_verified:verified,admin:claim}).firestore();
+const managedProduct = id => ({id,name:'Managed product',category:'FOOD',petTarget:'ALL',price:100000,
+  originalPrice:100000,stock:10,imageUrl:'',description:'Description',isFeatured:false,isActive:true,updatedAt:serverTimestamp()});
+const managedClinic = id => ({id,name:'Clinic',address:'Verified address',latitude:10,longitude:106,phone:'0901234567',
+  openHours:'08:00 - 21:00',services:['Checkup'],isOpen24_7:false,updatedAt:serverTimestamp()});
+const managedArticle = id => ({id,title:'Article',category:'Care',author:'Author',publishedAt:'2026-11-07',thumbnailUrl:'',
+  summary:'Summary',content:'Content',readTimeMinutes:5,updatedAt:serverTimestamp()});
 function orderData(uid, id, count=1) {
   const items={};
   for(let i=1;i<=count;i++) items['p'+i]={name:'Product '+i,price:100000,quantity:1,imageUrl:'https://example.com/p.jpg'};
@@ -121,4 +129,86 @@ test('discounts and free shipping follow the same formula as the app', async () 
   await assertSucceeds(checkout(db('alice'),free));
   const discount=orderData('alice','discount'); discount.voucher='PAWPALS10'; discount.discountAmount=10000; discount.totalAmount=115000;
   await assertSucceeds(checkout(db('alice'),discount,8));
+});
+test('verified administrators can create and edit catalog, clinics and articles; users cannot', async () => {
+  const fixtures=[['products/new',managedProduct('new')],['clinics/new',managedClinic('new')],['articles/new',managedArticle('new')]];
+  for (const [path,data] of fixtures) {
+    await assertFails(setDoc(doc(db('alice'),path),data));
+    await assertFails(setDoc(doc(adminDb(false),path),data));
+    await assertFails(setDoc(doc(adminDb(true,'true'),path),data));
+    await assertSucceeds(setDoc(doc(adminDb(),path),data));
+    await assertFails(updateDoc(doc(db('alice'),path),{name:'Tampered'}));
+    await assertFails(deleteDoc(doc(db('alice'),path)));
+  }
+  await assertSucceeds(updateDoc(doc(adminDb(),'products/new'),{price:90000,updatedAt:serverTimestamp()}));
+  await assertSucceeds(updateDoc(doc(adminDb(),'products/new'),{stock:20,updatedAt:serverTimestamp()}));
+  await assertSucceeds(deleteDoc(doc(adminDb(),'clinics/new')));
+  await assertSucceeds(deleteDoc(doc(adminDb(),'articles/new')));
+  await assertFails(deleteDoc(doc(adminDb(),'products/new')));
+});
+test('admin content validation rejects invalid prices, stock, coordinates, URLs and empty articles', async () => {
+  for (const change of [{price:-1},{stock:-1},{stock:1.5},{originalPrice:1},{imageUrl:'http://unsafe.test/a.png'},{category:'FAKE'},{isActive:'true'}]) {
+    await assertFails(setDoc(doc(adminDb(),'products/bad'),{...managedProduct('bad'),...change}));
+  }
+  await assertFails(setDoc(doc(adminDb(),'clinics/bad'),{...managedClinic('bad'),latitude:91}));
+  await assertFails(setDoc(doc(adminDb(),'articles/bad'),{...managedArticle('bad'),content:''}));
+});
+test('profile fields and membership cannot promote a user to administrator', async () => {
+  const profile={uid:'alice',email:'alice@example.com',displayName:'Alice',membershipLevel:'STANDARD'};
+  for (const forged of [{admin:true},{role:'admin'},{membershipLevel:'ADMIN'}]) {
+    await assertFails(setDoc(doc(db('alice'),'users/alice'),{...profile,...forged}));
+  }
+  await assertFails(setDoc(doc(db('alice'),'roles/alice'),{admin:true}));
+  await assertFails(setDoc(doc(db('alice'),'admins/alice'),{admin:true}));
+  await assertFails(updateDoc(doc(db('alice'),'products/p1'),{price:1}));
+});
+test('administrators can list profiles and all orders but cannot inspect private pet records or OTPs', async () => {
+  await assertSucceeds(setDoc(doc(db('alice'),'users/alice'),{uid:'alice',email:'alice@example.com',displayName:'Alice',membershipLevel:'STANDARD'}));
+  await checkout(db('alice'),orderData('alice','visible-to-admin'));
+  await assertSucceeds(getDocs(collection(adminDb(),'users')));
+  await assertSucceeds(getDocs(collection(adminDb(),'orders')));
+  await assertSucceeds(getDoc(doc(adminDb(),'users/alice')));
+  await assertFails(getDoc(doc(adminDb(),'users/alice/pets/1')));
+  await assertFails(getDoc(doc(adminDb(),'emailVerificationChallenges/alice')));
+  await assertFails(updateDoc(doc(adminDb(),'users/alice'),{displayName:'Changed by admin'}));
+});
+test('only administrators can advance an order and terminal states cannot be reversed', async () => {
+  await checkout(db('alice'),orderData('alice','workflow'));
+  const change = status => ({status,statusUpdatedAt:serverTimestamp(),statusUpdatedBy:'admin'});
+  await assertFails(updateDoc(doc(db('alice'),'orders/workflow'),change('Đang giao')));
+  await assertFails(updateDoc(doc(adminDb(),'orders/workflow'),change('Hoàn thành')));
+  await assertSucceeds(updateDoc(doc(adminDb(),'orders/workflow'),change('Đang giao')));
+  await assertFails(updateDoc(doc(adminDb(),'orders/workflow'),{...change('Hoàn thành'),totalAmount:0}));
+  await assertFails(updateDoc(doc(adminDb(),'orders/workflow'),{...change('Hoàn thành'),userId:'admin'}));
+  await assertSucceeds(updateDoc(doc(adminDb(),'orders/workflow'),change('Hoàn thành')));
+  await assertFails(updateDoc(doc(adminDb(),'orders/workflow'),change('Chờ xác nhận')));
+});
+test('admin cancellation must return stock atomically, only once, including a five-line order', async () => {
+  const order=orderData('alice','admin-cancel',5);
+  const database=adminDb();
+  await checkout(db('alice'),order);
+  await assertFails(updateDoc(doc(adminDb(),'orders/admin-cancel'),{status:'Đã hủy',cancelledAt:serverTimestamp()}));
+  const batch=writeBatch(database);
+  batch.update(doc(database,'orders/admin-cancel'),{status:'Đã hủy',cancelledAt:serverTimestamp()});
+  for (const id of Object.keys(order.items)) batch.update(doc(database,'products',id),{stock:10,lastOrderId:'admin-cancel',updatedAt:serverTimestamp()});
+  await assertSucceeds(batch.commit());
+  const retry=writeBatch(database);
+  retry.update(doc(database,'orders/admin-cancel'),{status:'Đã hủy',cancelledAt:serverTimestamp()});
+  for (const id of Object.keys(order.items)) retry.update(doc(database,'products',id),{stock:11,lastOrderId:'admin-cancel',updatedAt:serverTimestamp()});
+  await assertFails(retry.commit());
+  assert.equal((await getDoc(doc(db('alice'),'products/p1'))).data().stock,10);
+});
+test('archiving prevents checkout and still permits stock restoration on cancellation', async () => {
+  const database = adminDb();
+  const customer = db('alice');
+  await assertSucceeds(setDoc(doc(database,'products/new'),managedProduct('new')));
+  const order = orderData('alice','archived');
+  order.items = {new:{name:'Managed product',price:100000,quantity:1,imageUrl:''}};
+  await assertSucceeds(checkout(db('alice'),order));
+  await assertSucceeds(updateDoc(doc(database,'products/new'),{isActive:false,updatedAt:serverTimestamp()}));
+  await assertFails(checkout(db('alice'),{...order,orderId:'inactive'},8));
+  const batch=writeBatch(customer);
+  batch.update(doc(customer,'orders/archived'),{status:'Đã hủy',cancelledAt:serverTimestamp()});
+  batch.update(doc(customer,'products/new'),{stock:10,lastOrderId:'archived',updatedAt:serverTimestamp()});
+  await assertSucceeds(batch.commit());
 });

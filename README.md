@@ -1,8 +1,12 @@
 # PawPals
 
+## Quản trị và phân quyền
+
+Đã bổ sung vai trò người dùng/quản trị viên, kiểm tra quyền bằng Firebase custom claims và màn hình **Tài khoản → Trung tâm quản trị**. Quản trị viên quản lý sản phẩm, đơn hàng, phòng khám, bài viết và xem hồ sơ tài khoản. Xem [hướng dẫn sử dụng, cấp/thu hồi quyền](docs/admin-management.md).
+
 ## Cập nhật xác nhận email và logo
 
-Đã bổ sung đăng ký bằng mã OTP 6 số, màn hình xác nhận email, giới hạn gửi/nhập sai, chính sách mật khẩu đăng ký và logo mới. **Để gửi mã thật cần kích hoạt Cloud Functions và SMTP**; project hiện chưa bật thanh toán. Xem [hướng dẫn cấu hình và kiểm thử](docs/email-verification.md). Rules mới yêu cầu email đã xác nhận; triển khai dịch vụ gửi mã trước khi triển khai rules lên production.
+Đã bổ sung đăng ký bằng mã OTP 6 số, màn hình xác nhận email, giới hạn gửi/nhập sai, chính sách mật khẩu đăng ký và logo mới. **Để gửi mã OTP cần kích hoạt Cloud Functions và SMTP**; project hiện chưa bật thanh toán. Khi dịch vụ OTP chưa hoạt động, có thể xác nhận bằng liên kết email của Firebase Auth. Rules đã yêu cầu email được xác nhận. Xem [hướng dẫn cấu hình và kiểm thử](docs/email-verification.md).
 
 Ứng dụng Flutter cho Android: hồ sơ thú cưng, sổ sức khỏe, nhắc lịch hàng ngày, cửa hàng và đơn hàng COD.
 

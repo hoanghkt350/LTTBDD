@@ -1,12 +1,17 @@
 // Owner-only setup utilities. OAuth credentials stay in memory and are never logged.
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 function cliJson(command) {
   const options = {encoding:'utf8',stdio:['ignore','pipe','pipe'],env:{...process.env,DEBUG:''}};
   let output;
   for(let attempt=0;attempt<3;attempt++) {
     try {
-      output = process.platform === 'win32'
+      const cli = process.env.APPDATA && path.join(process.env.APPDATA,'npm','node_modules','firebase-tools','lib','bin','firebase.js');
+      output = cli && fs.existsSync(cli)
+        ? execFileSync(process.execPath,[cli,...command.split(' ')],options)
+        : process.platform === 'win32'
         ? execFileSync(process.env.ComSpec || 'cmd.exe',['/d','/s','/c','firebase '+command],options)
         : execFileSync('firebase',command.split(' '),options);
       break;

@@ -5,7 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 
 async function main() {
-  const env=await initializeTestEnvironment({projectId:'demo-pawpals',firestore:{host:'127.0.0.1',port:8180}});
+  const env=await initializeTestEnvironment({projectId:'demo-pawpals',firestore:{host:'127.0.0.1',port:8180,rules:fs.readFileSync(path.join(__dirname,'..','firestore.rules'),'utf8')}});
   try {
     // The preceding rules tests use deliberately minimal product fixtures.
     // Reset only this demo emulator namespace before loading the full app catalog.

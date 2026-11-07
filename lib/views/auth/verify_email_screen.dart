@@ -21,6 +21,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Timer? _timer;
   bool _sent = false;
   bool _initialSendStarted = false;
+  bool _linkSent = false;
 
   @override
   void initState() {
@@ -56,16 +57,26 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   }
 
   Future<void> _verify() async {
+    if (_linkSent) {
+      await context.read<AuthProvider>().refreshVerification();
+      return;
+    }
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     await context.read<AuthProvider>().verifyEmailCode(_code.text);
     // The auth root replaces this screen only after email_verified is refreshed.
   }
 
+  Future<void> _sendLink() async {
+    final ok = await context.read<AuthProvider>().sendVerificationLink();
+    if (mounted && ok) setState(() => _linkSent = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final cooldown = _secondsUntil(auth.resendAt);
+    final linkCooldown = _secondsUntil(auth.linkResendAt);
     final expiry = auth.verificationDelivery?.expiresAt;
     final remaining = _secondsUntil(expiry);
     // Registration can emit a pending user before its display-name update ends.
@@ -101,7 +112,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      _sent
+                      _linkSent
+                          ? 'Đã gửi liên kết xác nhận đến'
+                          : _sent
                           ? 'Mã xác nhận đã được gửi đến'
                           : 'Xác nhận email để bảo vệ tài khoản của bạn.',
                       textAlign: TextAlign.center,
@@ -117,38 +130,41 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       ),
                     ),
                     const SizedBox(height: 28),
-                    TextFormField(
-                      key: const ValueKey('email-verification-code'),
-                      controller: _code,
-                      enabled: !auth.isLoading,
-                      autofocus: true,
-                      keyboardType: TextInputType.number,
-                      autofillHints: const [AutofillHints.oneTimeCode],
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 10,
+                    if (!_linkSent)
+                      TextFormField(
+                        key: const ValueKey('email-verification-code'),
+                        controller: _code,
+                        enabled: !auth.isLoading,
+                        autofocus: true,
+                        keyboardType: TextInputType.number,
+                        autofillHints: const [AutofillHints.oneTimeCode],
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 10,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Mã xác nhận 6 số',
+                          hintText: '000000',
+                        ),
+                        validator: (value) =>
+                            RegExp(r'^\d{6}$').hasMatch(value ?? '')
+                            ? null
+                            : 'Vui lòng nhập đủ 6 chữ số',
+                        onFieldSubmitted: (_) {
+                          if (!auth.isLoading) _verify();
+                        },
                       ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(6),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'Mã xác nhận 6 số',
-                        hintText: '000000',
-                      ),
-                      validator: (value) =>
-                          RegExp(r'^\d{6}$').hasMatch(value ?? '')
-                          ? null
-                          : 'Vui lòng nhập đủ 6 chữ số',
-                      onFieldSubmitted: (_) {
-                        if (!auth.isLoading) _verify();
-                      },
-                    ),
                     const SizedBox(height: 12),
                     Text(
-                      expiry == null
+                      _linkSent
+                          ? 'Mở Gmail, bấm liên kết xác nhận rồi quay lại ứng dụng.'
+                          : expiry == null
                           ? 'Mã có hiệu lực trong 10 phút.'
                           : remaining == 0
                           ? 'Mã đã hết hạn. Vui lòng gửi mã mới.'
@@ -177,18 +193,50 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       onPressed: auth.isLoading ? null : _verify,
                       icon: const Icon(Icons.verified_user_outlined),
                       label: Text(
-                        auth.isLoading ? 'Đang xử lý…' : 'XÁC NHẬN EMAIL',
+                        auth.isLoading
+                            ? 'Đang xử lý…'
+                            : _linkSent
+                            ? 'TÔI ĐÃ XÁC NHẬN EMAIL'
+                            : 'XÁC NHẬN EMAIL',
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: auth.isLoading || cooldown > 0 ? null : _send,
-                      child: Text(
-                        cooldown > 0
-                            ? 'Gửi lại mã sau ${cooldown}s'
-                            : 'Gửi lại mã xác nhận',
+                    if (!_linkSent)
+                      TextButton(
+                        onPressed: auth.isLoading || cooldown > 0
+                            ? null
+                            : _send,
+                        child: Text(
+                          cooldown > 0
+                              ? 'Gửi lại mã sau ${cooldown}s'
+                              : 'Gửi lại mã xác nhận',
+                        ),
                       ),
-                    ),
+                    if (auth.verificationServiceUnavailable || _linkSent) ...[
+                      TextButton.icon(
+                        onPressed: auth.isLoading || linkCooldown > 0
+                            ? null
+                            : _sendLink,
+                        icon: const Icon(
+                          Icons.mark_email_read_outlined,
+                          size: 18,
+                        ),
+                        label: Text(
+                          linkCooldown > 0
+                              ? 'Gửi lại liên kết sau ${linkCooldown}s'
+                              : _linkSent
+                              ? 'Gửi lại liên kết xác nhận'
+                              : 'Xác nhận bằng liên kết email',
+                        ),
+                      ),
+                      if (_linkSent)
+                        TextButton(
+                          onPressed: auth.isLoading
+                              ? null
+                              : () => setState(() => _linkSent = false),
+                          child: const Text('Dùng mã xác nhận 6 số'),
+                        ),
+                    ],
                     const SizedBox(height: 12),
                     const Text(
                       'Kiểm tra cả thư mục Spam/Thư rác. Chỉ nhập mã trong ứng dụng và không chia sẻ cho người khác.',

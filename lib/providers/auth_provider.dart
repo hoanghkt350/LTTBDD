@@ -14,34 +14,43 @@ class AuthProvider with ChangeNotifier {
 
   final FirebaseService _service;
   AppUser? _user;
+  bool _isAdmin = false;
   String? _pendingEmail;
   bool _isCheckingSession = true;
   EmailVerificationDelivery? _verificationDelivery;
   DateTime? _resendAt;
+  DateTime? _linkResendAt;
+  bool _verificationServiceUnavailable = false;
   bool _isLoading = false;
   String? error;
   StreamSubscription? _subscription;
   int _generation = 0;
   AppUser? get user => _user;
   bool get isAuthenticated => _user != null;
+  bool get isAdmin => isAuthenticated && _isAdmin;
   bool get isLoading => _isLoading;
   String? get pendingEmail => _pendingEmail;
   bool get needsEmailVerification => _pendingEmail != null;
   bool get isCheckingSession => _isCheckingSession;
   EmailVerificationDelivery? get verificationDelivery => _verificationDelivery;
   DateTime? get resendAt => _resendAt;
+  DateTime? get linkResendAt => _linkResendAt;
+  bool get verificationServiceUnavailable => _verificationServiceUnavailable;
 
   Future<void> checkAuthStatus() async {
     if (!_service.isReady || _subscription != null) return;
     _subscription = _service.auth.userChanges().listen((user) async {
       final generation = ++_generation;
       if (user == null || !user.emailVerified) {
+        _isAdmin = false;
         _isCheckingSession = false;
         _user = null;
         _pendingEmail = user?.email;
         if (user == null) {
           _verificationDelivery = null;
           _resendAt = null;
+          _linkResendAt = null;
+          _verificationServiceUnavailable = false;
         }
         notifyListeners();
         return;
@@ -49,12 +58,15 @@ class AuthProvider with ChangeNotifier {
       _isCheckingSession = _user == null;
       // Ensure rules see email_verified before creating any session providers.
       try {
-        final token = await user.getIdTokenResult();
+        var token = await user.getIdTokenResult();
         if (token.claims?['email_verified'] != true) {
-          await user.getIdToken(true);
+          token = await user.getIdTokenResult(true);
         }
+        if (generation != _generation) return;
+        _isAdmin = token.claims?['admin'] == true;
       } catch (e) {
         if (generation != _generation) return;
+        _isAdmin = false;
         _isCheckingSession = false;
         error = errorMessage(e);
         notifyListeners();
@@ -106,11 +118,19 @@ class AuthProvider with ChangeNotifier {
   Future<bool> sendVerificationCode() => _run(() async {
     try {
       _verificationDelivery = await _service.sendVerificationCode();
+      _verificationServiceUnavailable = false;
       _resendAt = _verificationDelivery?.resendAt;
       if (_verificationDelivery == null) {
         await _service.refreshVerification();
       }
     } on FirebaseFunctionsException catch (e) {
+      _verificationServiceUnavailable = [
+        'not-found',
+        'unimplemented',
+        'unavailable',
+        'internal',
+        'deadline-exceeded',
+      ].contains(e.code);
       // The backend supplies its deadline even for rate-limit/delivery failures.
       final details = e.details;
       if (details is Map && details['resendAt'] is num) {
@@ -125,6 +145,16 @@ class AuthProvider with ChangeNotifier {
       _run(() => _service.verifyEmailCode(code));
   Future<bool> refreshVerification() =>
       _run(() => _service.refreshVerification());
+  Future<bool> sendVerificationLink() => _run(() async {
+    if (_linkResendAt?.isAfter(DateTime.now()) ?? false) {
+      throw StateError('Vui lòng chờ một phút trước khi gửi lại liên kết.');
+    }
+    await _service.sendVerificationLink();
+    _linkResendAt = DateTime.now().add(const Duration(seconds: 60));
+  });
+  Future<bool> refreshPermissions() => _run(() async {
+    await _service.auth.currentUser?.getIdTokenResult(true);
+  });
   Future<bool> resetPassword(String email) =>
       _run(() => _service.resetPassword(email));
   Future<bool> updateProfile(AppUser user) => _run(() async {
@@ -135,9 +165,12 @@ class AuthProvider with ChangeNotifier {
     await _service.auth.signOut();
     _generation++;
     _user = null;
+    _isAdmin = false;
     _pendingEmail = null;
     _verificationDelivery = null;
     _resendAt = null;
+    _linkResendAt = null;
+    _verificationServiceUnavailable = false;
     error = null;
     notifyListeners();
   }

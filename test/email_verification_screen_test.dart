@@ -7,6 +7,22 @@ import 'package:pawpals_app/theme/app_theme.dart';
 import 'package:pawpals_app/views/auth/verify_email_screen.dart';
 
 class _Auth extends AuthProvider {
+  bool unavailable = false;
+  int links = 0, refreshes = 0;
+  @override
+  bool get verificationServiceUnavailable => unavailable;
+  @override
+  Future<bool> sendVerificationLink() async {
+    links++;
+    return true;
+  }
+
+  @override
+  Future<bool> refreshVerification() async {
+    refreshes++;
+    return false;
+  }
+
   bool loading = false;
   int sends = 0;
   String? submitted;
@@ -57,6 +73,25 @@ Future<void> _mount(WidgetTester tester, _Auth auth) => tester.pumpWidget(
 );
 
 void main() {
+  testWidgets(
+    'unavailable OTP offers a verification link and checks server verification after opening it',
+    (tester) async {
+      final auth = _Auth()..unavailable = true;
+      await _mount(tester, auth);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Xác nhận bằng liên kết email'));
+      await tester.tap(find.text('Xác nhận bằng liên kết email'));
+      await tester.pumpAndSettle();
+      expect(auth.links, 1);
+      expect(find.byType(TextFormField), findsNothing);
+      await tester.ensureVisible(find.text('TÔI ĐÃ XÁC NHẬN EMAIL'));
+      await tester.tap(find.text('TÔI ĐÃ XÁC NHẬN EMAIL'));
+      await tester.pumpAndSettle();
+      expect(auth.refreshes, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      auth.dispose();
+    },
+  );
   testWidgets('initial mail waits for registration and is sent exactly once', (
     tester,
   ) async {

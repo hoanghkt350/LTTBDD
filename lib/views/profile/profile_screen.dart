@@ -3,11 +3,14 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/pet_provider.dart';
+import '../../providers/shop_provider.dart';
+import '../../providers/clinic_provider.dart';
 import '../../services/app_error.dart';
 import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/pawpals_logo.dart';
 import 'orders_screen.dart';
+import '../admin/admin_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -78,6 +81,59 @@ class ProfileScreen extends StatelessWidget {
               subtitle: Text('Tài khoản đã xác minh quyền sở hữu email.'),
             ),
           ),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                auth.isAdmin
+                    ? Icons.admin_panel_settings_outlined
+                    : Icons.person_outline,
+              ),
+              title: Text(auth.isAdmin ? 'Quản trị viên' : 'Người dùng'),
+              trailing: IconButton(
+                tooltip: 'Cập nhật quyền tài khoản',
+                icon: const Icon(Icons.refresh),
+                onPressed: auth.isLoading
+                    ? null
+                    : () async {
+                        final ok = await auth.refreshPermissions();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                ok
+                                    ? 'Đã cập nhật quyền tài khoản.'
+                                    : auth.error ?? 'Chưa cập nhật được quyền.',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+              ),
+            ),
+          ),
+          if (auth.isAdmin)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.dashboard_outlined),
+                title: const Text('Trung tâm quản trị'),
+                subtitle: const Text(
+                  'Sản phẩm, đơn hàng, nội dung và tài khoản',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AdminScreen()),
+                  );
+                  if (context.mounted) {
+                    await Future.wait([
+                      context.read<ShopProvider>().fetchProducts(),
+                      context.read<ClinicProvider>().loadClinicsAndArticles(),
+                    ]);
+                  }
+                },
+              ),
+            ),
           Card(
             child: Column(
               children: [

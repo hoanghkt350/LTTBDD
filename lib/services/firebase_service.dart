@@ -33,6 +33,19 @@ class FirebaseService {
     return FirebaseFunctions.instanceFor(app: _app!, region: 'asia-southeast1');
   }
 
+  Future<void> requireAdmin() async {
+    final user = auth.currentUser;
+    if (user == null || !user.emailVerified) {
+      throw StateError(
+        'Bạn cần đăng nhập bằng tài khoản quản trị đã xác nhận email.',
+      );
+    }
+    final token = await user.getIdTokenResult(true);
+    if (token.claims?['admin'] != true) {
+      throw StateError('Bạn không có quyền quản trị.');
+    }
+  }
+
   void _ensureReady() {
     if (!isFirebaseInitialized) {
       throw StateError(
@@ -177,6 +190,13 @@ class FirebaseService {
     await refreshVerification();
   }
 
+  Future<void> sendVerificationLink() async {
+    final user = auth.currentUser;
+    if (user == null) throw StateError('Bạn cần đăng nhập lại.');
+    await auth.setLanguageCode('vi');
+    await user.sendEmailVerification();
+  }
+
   Future<void> refreshVerification() async {
     await auth.currentUser?.reload();
     final user = auth.currentUser;
@@ -212,6 +232,7 @@ class FirebaseService {
         .get()
         .timeout(const Duration(seconds: 12));
     var products = snapshot.docs
+        .where((d) => d.data()['isActive'] != false)
         .map((d) => Product.fromMap({...d.data(), 'id': d.id}))
         .toList();
     if (category != null && category != 'ALL') {
@@ -269,6 +290,9 @@ class FirebaseService {
       for (final id in input.keys) {
         final doc = await tx.get(firestore.collection('products').doc(id));
         if (!doc.exists) {
+          throw StateError('Sản phẩm đã ngừng bán. Hãy cập nhật giỏ hàng.');
+        }
+        if (doc.data()!['isActive'] == false) {
           throw StateError('Sản phẩm đã ngừng bán. Hãy cập nhật giỏ hàng.');
         }
         final product = Product.fromMap({...doc.data()!, 'id': id});
@@ -344,12 +368,13 @@ class FirebaseService {
   }
 
   Future<List<Map<String, dynamic>>> getOrders() => watchOrders().first;
-  Future<void> cancelOrder(String id) async {
+  Future<void> cancelOrder(String id, {bool asAdmin = false}) async {
+    if (asAdmin) await requireAdmin();
     final owner = uid;
     final ref = firestore.collection('orders').doc(id);
     await firestore.runTransaction((tx) async {
       final doc = await tx.get(ref);
-      if (!doc.exists || doc.data()!['userId'] != owner) {
+      if (!doc.exists || (!asAdmin && doc.data()!['userId'] != owner)) {
         throw StateError('Không tìm thấy đơn hàng.');
       }
       final order = doc.data()!;

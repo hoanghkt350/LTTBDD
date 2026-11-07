@@ -4,7 +4,9 @@ Mã nguồn đã có luồng đăng ký → nhập mã 6 số → vào ứng d�
 
 ## Kích hoạt gửi email thật
 
-Project `dalttbdd-b3e19` hiện chưa gắn thanh toán (đã kiểm tra ngày 07/11/2026). Cần chủ project bật gói Blaze trước khi triển khai Cloud Functions. Chưa triển khai rules mới lên production vì cần dịch vụ gửi mã hoạt động trước để người dùng có thể xác nhận.
+Project `dalttbdd-b3e19` hiện chưa gắn thanh toán (đã kiểm tra ngày 07/11/2026). Cần chủ project bật gói Blaze trước khi triển khai Cloud Functions gửi OTP 6 số.
+
+Ứng dụng có lựa chọn **Xác nhận bằng liên kết email** khi dịch vụ OTP chưa hoạt động, dùng Firebase Auth trực tiếp. Người dùng vẫn có thể xác nhận email và sử dụng app trong lúc chưa cấu hình SMTP. Rules xác nhận email và phân quyền đã được triển khai cùng tính năng quản trị; xem [hướng dẫn quản trị](admin-management.md).
 
 1. Bật Blaze tại [Firebase Console](https://console.firebase.google.com/project/dalttbdd-b3e19/usage/details). Đặt cảnh báo ngân sách theo nhu cầu.
 2. Chuẩn bị một Gmail dùng để gửi mã, bật xác minh 2 bước và tạo [mật khẩu ứng dụng Google](https://support.google.com/accounts/answer/185833). Không dùng mật khẩu đăng nhập Gmail. Tài khoản Workspace có thể bị quản trị viên hạn chế tính năng này; khi đó cấu hình SMTP khác trong Secret Manager.

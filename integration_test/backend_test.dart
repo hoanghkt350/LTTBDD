@@ -13,6 +13,9 @@ import 'package:pawpals_app/main.dart';
 
 import 'helpers/auth_emulator.dart';
 
+import 'package:pawpals_app/services/admin_service.dart';
+import 'package:pawpals_app/services/order_workflow.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUp(() async {
@@ -240,4 +243,90 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(() => FirebaseService.instance.auth.signOut());
   }, timeout: const Timeout(Duration(minutes: 3)));
+  testWidgets(
+    'administrator claims, management writes, stock concurrency and revocation work through native SDK',
+    (tester) async {
+      await tester.runAsync(() async {
+        final service = FirebaseService.instance;
+        final admin = AdminService();
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        final email = 'manager-$stamp@example.com';
+        await service.register('Manager', email, 'TestPass123!');
+        await verifyEmulatorEmail();
+        await expectLater(admin.watch('products').first, throwsStateError);
+        await setEmulatorAdmin(true);
+        final data = <String, dynamic>{
+          'name': 'Admin test $stamp',
+          'category': 'FOOD',
+          'petTarget': 'ALL',
+          'price': 100000,
+          'originalPrice': 100000,
+          'stock': 10,
+          'imageUrl': '',
+          'description': 'Test product',
+          'isFeatured': false,
+          'isActive': true,
+          'rating': 0,
+          'reviewCount': 0,
+        };
+        await admin.save('products', null, data);
+        final original = (await admin.watch('products').first).singleWhere(
+          (p) => p['name'] == data['name'],
+        );
+        final id = original['_id'] as String;
+        await service.auth.signOut();
+        await service.register(
+          'Customer',
+          'buyer-$stamp@example.com',
+          'TestPass123!',
+        );
+        await verifyEmulatorEmail();
+        await service.createOrder({
+          'quantities': {id: 1},
+          'prices': {id: 100000.0},
+          'voucher': '',
+          'recipient': {
+            'name': 'Buyer',
+            'phone': '0901234567',
+            'address': '123 Test Street',
+          },
+        }, orderId: 'admin-$stamp');
+        await service.auth.signOut();
+        await service.signInWithEmail(email, 'TestPass123!');
+        await admin.save('products', id, {
+          ...data,
+          'name': 'Renamed $stamp',
+        }, original: original);
+        expect(
+          (await service.firestore.collection('products').doc(id).get())
+              .data()!['stock'],
+          9,
+        );
+        await expectLater(
+          admin.save('products', id, {
+            ...data,
+            'stock': 20,
+          }, original: original),
+          throwsStateError,
+        );
+        await admin.setProductActive(id, false);
+        await admin.updateOrderStatus('admin-$stamp', OrderWorkflow.cancelled);
+        expect(
+          (await service.firestore.collection('products').doc(id).get())
+              .data()!['stock'],
+          10,
+        );
+        expect(
+          (await admin.watch('orders').first).any(
+            (o) => o['_id'] == 'admin-$stamp',
+          ),
+          isTrue,
+        );
+        await setEmulatorAdmin(false);
+        await expectLater(admin.setProductActive(id, true), throwsStateError);
+        await service.auth.signOut();
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }

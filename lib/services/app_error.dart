@@ -30,7 +30,7 @@ String errorMessage(Object error) {
       'network-request-failed' ||
       'unavailable' => 'Không kết nối được Firebase. Kiểm tra mạng và thử lại.',
       'permission-denied' =>
-        'Firebase từ chối truy cập. Kiểm tra Firestore Rules.',
+        'Bạn không có quyền thực hiện thao tác này. Hãy cập nhật quyền tài khoản hoặc đăng nhập lại.',
       'operation-not-allowed' =>
         'Chưa bật Email/Password trong Firebase Console.',
       'invalid-api-key' => 'Cấu hình Firebase chưa hợp lệ. Thay google-services.json và build lại.',
