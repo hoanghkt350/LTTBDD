@@ -11,6 +11,8 @@ import 'package:pawpals_app/models/health_record_model.dart';
 import 'package:pawpals_app/models/reminder_model.dart';
 import 'package:pawpals_app/main.dart';
 
+import 'helpers/auth_emulator.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUp(() async {
@@ -48,6 +50,9 @@ void main() {
           'TestPass123!',
         );
         expect(user.email, email);
+        expect(service.auth.currentUser!.emailVerified, isFalse);
+        expect(() => service.uid, throwsStateError);
+        await verifyEmulatorEmail();
         await service.saveProfile(
           user.copyWith(phoneNumber: '0901234567', address: '123 Test Street'),
         );
@@ -170,6 +175,7 @@ void main() {
           'other-$stamp@example.com',
           'TestPass123!',
         );
+        await verifyEmulatorEmail();
         final otherPets = PetProvider(other.uid);
         addTearDown(otherPets.dispose);
         await otherPets.loadInitialData();
@@ -201,20 +207,30 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(0), 'UI Test');
     await tester.enterText(find.byType(TextFormField).at(1), email);
     await tester.enterText(find.byType(TextFormField).at(2), 'TestPass123!');
+    await tester.enterText(find.byType(TextFormField).at(3), 'TestPass123!');
     await tester.ensureVisible(find.text('TẠO TÀI KHOẢN'));
     await tester.tap(find.text('TẠO TÀI KHOẢN'));
-    await waitFor(find.text('Lịch nhắc đang bật'));
+    await waitFor(find.text('Xác nhận email của bạn'));
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.runAsync(verifyEmulatorEmail);
+    await waitFor(find.byType(NavigationBar));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Thêm thú cưng'));
+    await tester.ensureVisible(find.text('Thêm thú cưng').first);
+    await tester.tap(find.text('Thêm thú cưng').first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'Mimi UI');
     await tester.enterText(find.byType(TextFormField).at(1), 'Poodle');
     await tester.enterText(find.byType(TextFormField).at(2), '4.5');
     await tester.ensureVisible(find.text('LƯU HỒ SƠ'));
     await tester.tap(find.text('LƯU HỒ SƠ'));
-    await waitFor(find.text('Lịch nhắc đang bật'));
+    await waitFor(find.byType(NavigationBar));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Thú cưng'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Thú cưng'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Mimi UI'), findsOneWidget);
     await tester.tap(find.text('Mimi UI'));

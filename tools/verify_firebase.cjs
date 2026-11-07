@@ -45,6 +45,13 @@ async function main() {
     await signInWithEmailAndPassword(authA,email,password);
     pass('Firebase Auth register, sign-in and wrong-password rejection');
 
+    // Only the owner CLI may verify this run's temporary test account.
+    await api('https://identitytoolkit.googleapis.com/v1/projects/'+project+'/accounts:update', {
+      method:'POST',body:{localId:userA.uid,emailVerified:true},
+    });
+    await userA.reload();
+    await userA.getIdToken(true);
+
     const userPath = 'users/'+userA.uid;
     ownedDocs.add(userPath);
     await setDoc(doc(dbA,userPath),{uid:userA.uid,email,displayName:'PawPals connection check',
@@ -100,6 +107,11 @@ async function main() {
     await checkDenied(getDocFromServer(doc(dbB,petPath)));
     const userB=(await createUserWithEmailAndPassword(getAuth(appB),run+'-b@example.invalid',password)).user;
     accounts.push(userB.uid);
+    await api('https://identitytoolkit.googleapis.com/v1/projects/'+project+'/accounts:update', {
+      method:'POST',body:{localId:userB.uid,emailVerified:true},
+    });
+    await userB.reload();
+    await userB.getIdToken(true);
     await checkDenied(getDocFromServer(doc(dbB,userPath)));
     await checkDenied(getDocFromServer(doc(dbB,petPath)));
     await checkDenied(getDocFromServer(doc(dbB,orderPath)));

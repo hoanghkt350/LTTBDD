@@ -2,10 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../models/product_model.dart';
 import '../models/user_model.dart';
 import 'checkout_pricing.dart';
+import 'auth_validation.dart';
+import 'email_verification.dart';
 
 class FirebaseService {
   static final instance = FirebaseService._();
@@ -13,6 +16,8 @@ class FirebaseService {
   static bool isFirebaseInitialized = false;
   static String? initializationError;
   static FirebaseApp? _app;
+  static Future<void>? _initializing;
+  bool get isReady => isFirebaseInitialized;
   fb.FirebaseAuth get auth {
     _ensureReady();
     return fb.FirebaseAuth.instanceFor(app: _app!);
@@ -21,6 +26,11 @@ class FirebaseService {
   FirebaseFirestore get firestore {
     _ensureReady();
     return FirebaseFirestore.instanceFor(app: _app!);
+  }
+
+  FirebaseFunctions get functions {
+    _ensureReady();
+    return FirebaseFunctions.instanceFor(app: _app!, region: 'asia-southeast1');
   }
 
   void _ensureReady() {
@@ -34,6 +44,7 @@ class FirebaseService {
   String get uid {
     final user = auth.currentUser;
     if (user == null) throw StateError('Bạn cần đăng nhập lại.');
+    if (!user.emailVerified) throw StateError('Vui lòng xác nhận email trước.');
     return user.uid;
   }
 
@@ -42,25 +53,33 @@ class FirebaseService {
   CollectionReference<Map<String, dynamic>> userCollection(String name) =>
       userDocument.collection(name);
 
-  static Future<void> initialize() async {
+  static Future<void> initialize() {
+    if (isFirebaseInitialized) return Future.value();
+    return _initializing ??= _initialize();
+  }
+
+  static Future<void> _initialize() async {
+    final timer = Stopwatch()..start();
+    initializationError = null;
     try {
       const emulatorHost = String.fromEnvironment('FIREBASE_EMULATOR_HOST');
       if (emulatorHost.isNotEmpty && !kDebugMode) {
         throw StateError('Firebase Emulator chỉ dành cho bản debug.');
       }
-      final app =
-          await (emulatorHost.isEmpty
-                  ? Firebase.initializeApp()
-                  : Firebase.initializeApp(
-                      name: 'pawpals-emulator',
-                      options: const FirebaseOptions(
-                        apiKey: 'demo-pawpals-key',
-                        appId: '1:123456789:android:1234567890abcdef',
-                        messagingSenderId: '123456789',
-                        projectId: 'demo-pawpals',
-                      ),
-                    ))
-              .timeout(const Duration(seconds: 15));
+      // Native SDK startup can exceed 15 seconds on a busy Android emulator.
+      // Keep observing its result; timing out here discards a late success and
+      // leaves the app permanently on the setup screen.
+      final app = await (emulatorHost.isEmpty
+          ? Firebase.initializeApp()
+          : Firebase.initializeApp(
+              name: 'pawpals-emulator',
+              options: const FirebaseOptions(
+                apiKey: 'demo-pawpals-key',
+                appId: '1:123456789:android:1234567890abcdef',
+                messagingSenderId: '123456789',
+                projectId: 'demo-pawpals',
+              ),
+            ));
       _app = app;
       if (app.options.apiKey.contains('Example')) {
         throw StateError(
@@ -80,11 +99,23 @@ class FirebaseService {
         );
         await instance.auth.useAuthEmulator(emulatorHost, authPort);
         instance.firestore.useFirestoreEmulator(emulatorHost, firestorePort);
+        instance.functions.useFunctionsEmulator(
+          emulatorHost,
+          const int.fromEnvironment(
+            'FIREBASE_FUNCTIONS_EMULATOR_PORT',
+            defaultValue: 5001,
+          ),
+        );
       }
     } catch (e) {
       initializationError = e.toString();
       isFirebaseInitialized = false;
       debugPrint('Firebase: $e');
+    } finally {
+      _initializing = null;
+      debugPrint(
+        'Firebase startup: ${timer.elapsedMilliseconds} ms; ready=$isFirebaseInitialized',
+      );
     }
   }
 
@@ -111,18 +142,53 @@ class FirebaseService {
       email: email,
       password: password,
     );
-    return getProfile(credential.user!);
+    final user = credential.user!;
+    return user.emailVerified ? getProfile(user) : profileFromAuth(user);
   }
 
   Future<AppUser> register(String name, String email, String password) async {
+    final passwordError = registrationPasswordError(password);
+    if (passwordError != null) throw ArgumentError(passwordError);
+    if (name.trim().isEmpty || name.trim().length > 80) {
+      throw ArgumentError('Tên cần từ 1 đến 80 ký tự.');
+    }
     final credential = await auth.createUserWithEmailAndPassword(
-      email: email,
+      email: email.trim(),
       password: password,
     );
-    await credential.user!.updateDisplayName(name);
-    final user = profileFromAuth(credential.user!).copyWith(displayName: name);
-    await saveProfile(user);
-    return user;
+    await credential.user!.updateDisplayName(name.trim());
+    // No Firestore reads/writes until the server has verified the email.
+    return profileFromAuth(credential.user!).copyWith(displayName: name.trim());
+  }
+
+  Future<EmailVerificationDelivery?> sendVerificationCode() async {
+    final result = await functions
+        .httpsCallable('sendEmailVerificationCode')
+        .call();
+    final data = Map<String, dynamic>.from(result.data as Map);
+    if (data['verified'] == true) return null;
+    return EmailVerificationDelivery.fromMap(data);
+  }
+
+  Future<void> verifyEmailCode(String code) async {
+    await functions.httpsCallable('verifyEmailVerificationCode').call({
+      'code': code,
+    });
+    await refreshVerification();
+  }
+
+  Future<void> refreshVerification() async {
+    await auth.currentUser?.reload();
+    final user = auth.currentUser;
+    if (user == null || !user.emailVerified) {
+      throw StateError(
+        'Email chưa được xác nhận. Vui lòng nhập mã trong email.',
+      );
+    }
+    // Firestore rules evaluate the ID token; reload alone does not refresh it.
+    await user.getIdToken(true);
+    final snapshot = await userDocument.get();
+    if (!snapshot.exists) await saveProfile(profileFromAuth(user));
   }
 
   Future<void> saveProfile(AppUser user) async {
@@ -131,8 +197,14 @@ class FirebaseService {
     await auth.currentUser!.updateDisplayName(user.displayName);
   }
 
-  Future<void> resetPassword(String email) =>
-      auth.sendPasswordResetEmail(email: email);
+  Future<void> resetPassword(String email) async {
+    try {
+      await auth.sendPasswordResetEmail(email: email.trim());
+    } on fb.FirebaseAuthException catch (e) {
+      // Keep the same result whether the email exists or not.
+      if (e.code != 'user-not-found') rethrow;
+    }
+  }
 
   Future<List<Product>> getProducts({String? category, String? query}) async {
     final snapshot = await firestore

@@ -1,5 +1,9 @@
 # PawPals
 
+## Cập nhật xác nhận email và logo
+
+Đã bổ sung đăng ký bằng mã OTP 6 số, màn hình xác nhận email, giới hạn gửi/nhập sai, chính sách mật khẩu đăng ký và logo mới. **Để gửi mã thật cần kích hoạt Cloud Functions và SMTP**; project hiện chưa bật thanh toán. Xem [hướng dẫn cấu hình và kiểm thử](docs/email-verification.md). Rules mới yêu cầu email đã xác nhận; triển khai dịch vụ gửi mã trước khi triển khai rules lên production.
+
 Ứng dụng Flutter cho Android: hồ sơ thú cưng, sổ sức khỏe, nhắc lịch hàng ngày, cửa hàng và đơn hàng COD.
 
 ## Firebase của dự án này

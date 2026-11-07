@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../services/auth_validation.dart';
+import '../../widgets/pawpals_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,13 +16,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _form = GlobalKey<FormState>();
   final _email = TextEditingController(),
       _password = TextEditingController(),
-      _name = TextEditingController();
+      _name = TextEditingController(),
+      _confirmation = TextEditingController();
   bool _register = false, _hidden = true;
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
     _name.dispose();
+    _confirmation.dispose();
     super.dispose();
   }
 
@@ -76,28 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: AppTheme.mint,
-                          borderRadius: BorderRadius.circular(32),
-                          border: Border.all(color: Colors.white, width: 6),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.secondary.withValues(alpha: .08),
-                              blurRadius: 28,
-                              offset: const Offset(0, 12),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.pets_rounded,
-                          size: 52,
-                          color: AppTheme.secondary,
-                        ),
-                      ),
-                    ),
+                    const Center(child: PawPalsLogo()),
                     const SizedBox(height: 16),
                     const Text(
                       'PawPals',
@@ -130,13 +113,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 8),
                     Text(
                       _register
-                          ? 'Bắt đầu hành trình cùng người bạn nhỏ.'
+                          ? 'Nhận mã xác nhận qua email để bảo vệ tài khoản.'
                           : 'Người bạn nhỏ đang chờ bạn đấy!',
                       style: const TextStyle(color: AppTheme.textLight),
                     ),
                     const SizedBox(height: 24),
                     if (_register) ...[
                       TextFormField(
+                        enabled: !auth.isLoading,
                         controller: _name,
                         decoration: const InputDecoration(
                           labelText: 'Tên của bạn',
@@ -149,6 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 12),
                     ],
                     TextFormField(
+                      enabled: !auth.isLoading,
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       autofillHints: const [AutofillHints.email],
@@ -164,11 +149,22 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
+                      enabled: !auth.isLoading,
                       controller: _password,
                       obscureText: _hidden,
-                      autofillHints: const [AutofillHints.password],
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      autofillHints: [
+                        _register
+                            ? AutofillHints.newPassword
+                            : AutofillHints.password,
+                      ],
                       decoration: InputDecoration(
                         labelText: 'Mật khẩu',
+                        helperText: _register
+                            ? 'Từ 10 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.'
+                            : null,
+                        helperMaxLines: 2,
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _hidden = !_hidden),
@@ -177,13 +173,36 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      validator: (v) => (v?.length ?? 0) >= 6
+                      validator: (v) => _register
+                          ? registrationPasswordError(v)
+                          : (v?.isNotEmpty ?? false)
                           ? null
-                          : 'Mật khẩu ít nhất 6 ký tự',
+                          : 'Vui lòng nhập mật khẩu',
                       onFieldSubmitted: (_) {
                         if (!auth.isLoading) _submit();
                       },
                     ),
+                    if (_register) ...[
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _confirmation,
+                        enabled: !auth.isLoading,
+                        obscureText: _hidden,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        autofillHints: const [AutofillHints.newPassword],
+                        decoration: const InputDecoration(
+                          labelText: 'Nhập lại mật khẩu',
+                          prefixIcon: Icon(Icons.lock_outline),
+                        ),
+                        validator: (v) => v == _password.text
+                            ? null
+                            : 'Mật khẩu nhập lại không khớp',
+                        onFieldSubmitted: (_) {
+                          if (!auth.isLoading) _submit();
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     ElevatedButton(
                       onPressed: auth.isLoading ? null : _submit,
@@ -198,7 +217,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextButton(
                       onPressed: auth.isLoading
                           ? null
-                          : () => setState(() => _register = !_register),
+                          : () => setState(() {
+                              _register = !_register;
+                              _password.clear();
+                              _confirmation.clear();
+                              _form.currentState?.reset();
+                              auth.error = null;
+                            }),
                       child: Text(
                         _register
                             ? 'Đã có tài khoản? Đăng nhập'

@@ -11,7 +11,7 @@ import 'package:pawpals_app/services/firebase_service.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
-    'Android connects to the real Firebase project and displays its catalog',
+    'Android connects to the real Firebase project and gates unverified accounts',
     (tester) async {
       const project = String.fromEnvironment('LIVE_FIREBASE_PROJECT');
       expect(
@@ -21,7 +21,6 @@ void main() {
       );
       expect(const String.fromEnvironment('FIREBASE_EMULATOR_HOST'), isEmpty);
       User? temporaryUser;
-      String? firstProductName;
       try {
         await tester.runAsync(() async {
           await FirebaseService.initialize();
@@ -43,29 +42,22 @@ void main() {
             email: email,
             password: password,
           )).user;
-          final products = await service.getProducts();
-          expect(products, isNotEmpty);
-          firstProductName = products.first.name;
+          expect(temporaryUser!.emailVerified, isFalse);
+          expect(() => service.uid, throwsStateError);
         });
 
         await tester.pumpWidget(const PawPalsApp());
         for (
           var i = 0;
-          i < 300 && find.byType(BottomNavigationBar).evaluate().isEmpty;
+          i < 300 && find.text('Xác nhận email của bạn').evaluate().isEmpty;
           i++
         ) {
           await tester.pump(const Duration(milliseconds: 100));
         }
         await tester.pumpAndSettle();
-        expect(find.byType(BottomNavigationBar), findsOneWidget);
-        await tester.tap(
-          find.descendant(
-            of: find.byType(BottomNavigationBar),
-            matching: find.text('Cửa hàng'),
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text(firstProductName!), findsOneWidget);
+        expect(find.byType(NavigationBar), findsNothing);
+        expect(find.text('Xác nhận email của bạn'), findsOneWidget);
+        expect(find.text(temporaryUser!.email!), findsOneWidget);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.runAsync(() async {

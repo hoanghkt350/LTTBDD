@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
     function owns(uid) { return signedIn() && request.auth.uid == uid; }
     function lineTotal(items, index) {
       return index < items.size() ? items[items.keys()[index]].price * items[items.keys()[index]].quantity : 0;

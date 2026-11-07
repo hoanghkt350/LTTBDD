@@ -49,6 +49,7 @@ dependencies:
   timezone: ^0.11.2
   flutter_timezone: ^5.1.1
   path_provider: ^2.1.6
+  cloud_functions: ^7.0.1
 
 dev_dependencies:
   integration_test:

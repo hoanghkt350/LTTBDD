@@ -21,7 +21,7 @@ beforeEach(async () => {
   });
 });
 after(async () => { if(env) await env.cleanup(); });
-const db = uid => env.authenticatedContext(uid, {email:uid+'@example.com'}).firestore();
+const db = (uid, verified = true) => env.authenticatedContext(uid, {email:uid+'@example.com', email_verified:verified}).firestore();
 function orderData(uid, id, count=1) {
   const items={};
   for(let i=1;i<=count;i++) items['p'+i]={name:'Product '+i,price:100000,quantity:1,imageUrl:'https://example.com/p.jpg'};
@@ -46,6 +46,28 @@ test('users cannot read other profiles or pet records', async () => {
   await assertFails(getDoc(doc(db('bob'),'users/alice')));
   await assertFails(setDoc(doc(db('alice'),'users/bob/pets/1'), {id:1,updatedAt:serverTimestamp()}));
   await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(),'products')));
+});
+test('unverified accounts cannot read catalogs, profiles, pets or orders or write data', async () => {
+  const database = db('alice', false);
+  await assertFails(getDoc(doc(database, 'products/p1')));
+  await assertFails(getDoc(doc(database, 'users/alice')));
+  await assertFails(getDocs(collection(database, 'users/alice/pets')));
+  await assertFails(getDocs(collection(database, 'clinics')));
+  await assertFails(getDocs(collection(database, 'articles')));
+  await assertFails(getDocs(query(collection(database, 'orders'), where('userId', '==', 'alice'))));
+  await assertFails(setDoc(doc(database, 'users/alice'), {
+    uid:'alice',email:'alice@example.com',displayName:'Alice',membershipLevel:'STANDARD',emailVerified:true,
+  }));
+  await assertFails(setDoc(doc(database, 'users/alice/pets/1'), {
+    id:1,name:'Milo',weight:5,avatar_cloud_url:null,updatedAt:serverTimestamp(),
+  }));
+  await assertFails(checkout(database, orderData('alice', 'unverified')));
+});
+test('OTP challenges and rate limits are inaccessible even to verified owners', async () => {
+  for (const path of ['emailVerificationChallenges/alice', 'emailVerificationRateLimits/alice']) {
+    await assertFails(getDoc(doc(db('alice'), path)));
+    await assertFails(setDoc(doc(db('alice'), path), {code:'123456',attempts:0}));
+  }
 });
 test('pet outbox writes and tombstones are owner-scoped', async () => {
   const ref=doc(db('alice'),'users/alice/pets/123');

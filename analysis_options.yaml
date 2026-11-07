@@ -19,6 +19,7 @@ analyzer:
     - macos/**
     - linux/**
     - tools/node_modules/**
+    - functions/node_modules/**
     - Microsoft/**
 
 linter:

@@ -8,6 +8,7 @@ import '../../providers/clinic_provider.dart';
 import '../../models/article_model.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/care_widgets.dart';
+import '../../widgets/pawpals_logo.dart';
 import '../pet/add_pet_screen.dart';
 import '../pet/pet_avatar.dart';
 import '../pet/pet_detail_screen.dart';
@@ -32,7 +33,7 @@ class HomeScreen extends StatelessWidget {
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.pets_rounded, color: AppTheme.secondary, size: 27),
+            PawPalsLogo(size: 34),
             SizedBox(width: 9),
             Text('PawPals'),
           ],

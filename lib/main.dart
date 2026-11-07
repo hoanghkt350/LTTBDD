@@ -9,12 +9,26 @@ import 'providers/shop_provider.dart';
 import 'providers/clinic_provider.dart';
 import 'services/firebase_service.dart';
 import 'views/auth/login_screen.dart';
+import 'views/auth/app_startup.dart';
+import 'views/auth/verify_email_screen.dart';
 import 'views/main_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await FirebaseService.initialize();
-  runApp(const PawPalsApp());
+  runApp(
+    AppStartup(
+      initialize: () async {
+        await FirebaseService.initialize();
+        if (!FirebaseService.isFirebaseInitialized) {
+          throw StateError(
+            FirebaseService.initializationError ??
+                'Không thể khởi tạo Firebase.',
+          );
+        }
+      },
+      child: const PawPalsApp(),
+    ),
+  );
 }
 
 class PawPalsApp extends StatelessWidget {
@@ -25,12 +39,16 @@ class PawPalsApp extends StatelessWidget {
     child: Consumer<AuthProvider>(
       builder: (context, auth, _) {
         final app = MaterialApp(
-          key: ValueKey(auth.user?.uid ?? 'signed-out'),
+          key: ValueKey(auth.user?.uid ?? auth.pendingEmail ?? 'signed-out'),
           title: 'PawPals',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           home: !FirebaseService.isFirebaseInitialized
               ? const _SetupScreen()
+              : auth.isCheckingSession
+              ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+              : auth.needsEmailVerification
+              ? const VerifyEmailScreen()
               : auth.isAuthenticated
               ? const MainScreen()
               : const LoginScreen(),

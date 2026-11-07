@@ -49,6 +49,10 @@ app.*.map.json
 
 # Local Firebase emulator and Node test tooling
 tools/node_modules/
+functions/node_modules/
+functions/.env*
+functions/.secret.local
+!functions/.env.example
 .firebase/
 firebase-debug.log
 firestore-debug.log

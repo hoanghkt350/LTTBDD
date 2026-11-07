@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../lib/services/sample_catalog.dart';
+import 'package:pawpals_app/services/sample_catalog.dart';
 
 void main() {
   File('tools/catalog.json').writeAsStringSync(

@@ -6,6 +6,7 @@ import '../../providers/pet_provider.dart';
 import '../../services/app_error.dart';
 import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/pawpals_logo.dart';
 import 'orders_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -70,6 +71,13 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 24),
           if (auth.error != null)
             Text(auth.error!, style: const TextStyle(color: Colors.orange)),
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.verified_user_outlined),
+              title: Text('Email đã xác nhận'),
+              subtitle: Text('Tài khoản đã xác minh quyền sở hữu email.'),
+            ),
+          ),
           Card(
             child: Column(
               children: [
@@ -140,6 +148,7 @@ class ProfileScreen extends StatelessWidget {
                   onTap: () => showAboutDialog(
                     context: context,
                     applicationName: 'PawPals',
+                    applicationIcon: const PawPalsLogo(size: 56),
                     applicationVersion: '1.0.0',
                     applicationLegalese: 'Ứng dụng quản lý thú cưng, sổ sức khỏe, nhắc lịch và mua sắm.',
                   ),
