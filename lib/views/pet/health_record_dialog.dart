@@ -20,6 +20,8 @@ class _HealthRecordDialogState extends State<HealthRecordDialog> {
   late String _type;
   late DateTime _date;
   DateTime? _next;
+  bool _remind = true;
+  TimeOfDay _reminderTime = const TimeOfDay(hour: 8, minute: 0);
   String? _error;
   bool _saving = false;
   @override
@@ -32,8 +34,16 @@ class _HealthRecordDialogState extends State<HealthRecordDialog> {
     _notes = TextEditingController(text: r?.notes);
     _cost = TextEditingController(text: r?.cost.toString() ?? '0');
     _type = r?.recordType ?? 'VACCINE';
-    _date = DateTime.tryParse(r?.administeredDate ?? '') ?? DateTime.now();
+    _date = DateUtils.dateOnly(
+      DateTime.tryParse(r?.administeredDate ?? '') ?? DateTime.now(),
+    );
     _next = DateTime.tryParse(r?.nextDueDate ?? '');
+    _remind = r?.nextDueReminderEnabled ?? true;
+    final time = (r?.nextDueReminderTime ?? '08:00').split(':');
+    _reminderTime = TimeOfDay(
+      hour: int.parse(time[0]),
+      minute: int.parse(time[1]),
+    );
   }
 
   @override
@@ -62,6 +72,14 @@ class _HealthRecordDialogState extends State<HealthRecordDialog> {
           nextDueDate: _next == null
               ? null
               : DateFormat('yyyy-MM-dd').format(_next!),
+          nextDueReminderEnabled: _remind,
+          nextDueReminderTime:
+              '${_reminderTime.hour.toString().padLeft(2, '0')}:${_reminderTime.minute.toString().padLeft(2, '0')}',
+          nextDueCompleted:
+              _next != null &&
+              DateFormat('yyyy-MM-dd').format(_next!) ==
+                  widget.record?.nextDueDate &&
+              (widget.record?.nextDueCompleted ?? false),
           veterinarian: _vet.text.trim(),
           clinicName: _clinic.text.trim(),
           notes: _notes.text.trim(),
@@ -89,6 +107,7 @@ class _HealthRecordDialogState extends State<HealthRecordDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _type,
               decoration: const InputDecoration(labelText: 'Loại hồ sơ'),
               items: const [
@@ -141,6 +160,39 @@ class _HealthRecordDialogState extends State<HealthRecordDialog> {
                 if (d != null && mounted) setState(() => _next = d);
               },
             ),
+            if (_next != null) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Nhắc lịch hẹn'),
+                subtitle: const Text('Nhắc trước 1 ngày và vào ngày hẹn'),
+                value: _remind,
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _remind = value),
+              ),
+              if (_remind)
+                ListTile(
+                  title: const Text('Giờ nhắc lịch hẹn'),
+                  subtitle: Text(_reminderTime.format(context)),
+                  trailing: const Icon(Icons.access_time),
+                  onTap: _saving
+                      ? null
+                      : () async {
+                          final time = await showTimePicker(
+                            context: context,
+                            initialTime: _reminderTime,
+                          );
+                          if (time != null && mounted) {
+                            setState(() => _reminderTime = time);
+                          }
+                        },
+                ),
+              const Text(
+                'Thông báo theo giờ trên thiết bị; có thể trễ do chế độ tiết kiệm pin.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: _vet,
               maxLength: 100,

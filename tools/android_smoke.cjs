@@ -15,9 +15,21 @@ async function main() {
       for(const p of catalog) await setDoc(doc(ctx.firestore(),'products',p.id),p);
     });
   } finally { await env.cleanup(); }
-  const command='flutter test integration_test/backend_test.dart --no-pub -d emulator-5554 --dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2 --dart-define=FIRESTORE_EMULATOR_PORT=8180 --dart-define=FIREBASE_AUTH_EMULATOR_PORT=9199';
+  const target=process.argv.includes('--features') ? 'integration_test/features_test.dart' : 'integration_test/backend_test.dart';
+  const command=`flutter test ${target} --no-pub -d emulator-5554 --dart-define=FIREBASE_EMULATOR_HOST=10.0.2.2 --dart-define=FIRESTORE_EMULATOR_PORT=8180 --dart-define=FIREBASE_AUTH_EMULATOR_PORT=9199`;
   const sdk=process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME || path.join(process.env.LOCALAPPDATA,'Android','sdk');
   const adb=path.join(sdk,'platform-tools','adb.exe');
+  // A device can appear in adb before Android's package service is ready.
+  let ready=false;
+  for(let attempt=0;attempt<120;attempt++) {
+    try {
+      const boot=execFileSync(adb,['-s','emulator-5554','shell','getprop','sys.boot_completed'],{encoding:'utf8',stdio:['ignore','pipe','ignore'],timeout:5000}).trim();
+      const framework=execFileSync(adb,['-s','emulator-5554','shell','pm','path','android'],{encoding:'utf8',stdio:['ignore','pipe','ignore'],timeout:5000});
+      if(boot==='1' && framework.startsWith('package:')) { ready=true; break; }
+    } catch (_) { /* Wait for the emulator to finish starting. */ }
+    await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+  if(!ready) throw new Error('Android emulator-5554 did not finish booting.');
   // Grant only the app's notification permission on the dedicated test emulator,
   // once the APK with the permission declaration has been installed.
   const grant=setInterval(()=>{
@@ -28,7 +40,7 @@ async function main() {
   },1000);
   try {
     await new Promise((resolve,reject)=>{
-      const child=spawn(process.env.ComSpec || 'cmd.exe',['/d','/s','/c',command],{stdio:'inherit'});
+      const child=spawn(process.env.ComSpec || 'cmd.exe',['/d','/s','/c',command],{stdio:'inherit',env:{...process.env,DEBUG:''}});
       child.on('error',reject);
       child.on('close',code=>code===0 ? resolve() : reject(new Error('Flutter integration test failed.')));
     });

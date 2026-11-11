@@ -24,6 +24,9 @@ class AuthProvider with ChangeNotifier {
   bool _isLoading = false;
   String? error;
   StreamSubscription? _subscription;
+  StreamSubscription<bool>? _approvalSubscription;
+  bool _approvedAdmin = false;
+  String? _approvalUid;
   int _generation = 0;
   AppUser? get user => _user;
   bool get isAuthenticated => _user != null;
@@ -36,34 +39,39 @@ class AuthProvider with ChangeNotifier {
   DateTime? get resendAt => _resendAt;
   DateTime? get linkResendAt => _linkResendAt;
   bool get verificationServiceUnavailable => _verificationServiceUnavailable;
+  bool get supportsGoogleSignIn => FirebaseService.supportsGoogleSignIn;
 
   Future<void> checkAuthStatus() async {
     if (!_service.isReady || _subscription != null) return;
     _subscription = _service.auth.userChanges().listen((user) async {
       final generation = ++_generation;
-      if (user == null || !user.emailVerified) {
+      final previousApproval = _approvalSubscription;
+      _approvalSubscription = null;
+      await previousApproval?.cancel();
+      if (generation != _generation) return;
+      if (user == null || _approvalUid != user.uid) {
+        _approvedAdmin = false;
+      }
+      _approvalUid = user?.uid;
+      if (user == null) {
         _isAdmin = false;
         _isCheckingSession = false;
         _user = null;
-        _pendingEmail = user?.email;
-        if (user == null) {
-          _verificationDelivery = null;
-          _resendAt = null;
-          _linkResendAt = null;
-          _verificationServiceUnavailable = false;
-        }
+        _pendingEmail = null;
+        _verificationDelivery = null;
+        _resendAt = null;
+        _linkResendAt = null;
+        _verificationServiceUnavailable = false;
         notifyListeners();
         return;
       }
       _isCheckingSession = _user == null;
-      // Ensure rules see email_verified before creating any session providers.
+      var hasAdminClaim = false;
       try {
-        var token = await user.getIdTokenResult();
-        if (token.claims?['email_verified'] != true) {
-          token = await user.getIdTokenResult(true);
-        }
+        final token = await user.getIdTokenResult();
         if (generation != _generation) return;
-        _isAdmin = token.claims?['admin'] == true;
+        hasAdminClaim = token.claims?['admin'] == true;
+        _isAdmin = hasAdminClaim || _approvedAdmin;
       } catch (e) {
         if (generation != _generation) return;
         _isAdmin = false;
@@ -77,6 +85,22 @@ class AuthProvider with ChangeNotifier {
       _pendingEmail = null;
       _user = _service.profileFromAuth(user);
       notifyListeners();
+      _approvalSubscription = _service
+          .watchAdminApproval(user.uid)
+          .listen(
+            (approved) {
+              if (generation != _generation) return;
+              _approvedAdmin = approved;
+              _isAdmin = hasAdminClaim || approved;
+              notifyListeners();
+            },
+            onError: (Object _) {
+              if (generation != _generation) return;
+              _approvedAdmin = false;
+              _isAdmin = hasAdminClaim;
+              notifyListeners();
+            },
+          );
       try {
         final profile = await _service.getProfile(user);
         if (generation != _generation) return;
@@ -111,6 +135,14 @@ class AuthProvider with ChangeNotifier {
   Future<bool> login(String email, String password) => _run(() async {
     await _service.signInWithEmail(email.trim(), password);
   });
+  Future<bool> loginWithGoogle() async {
+    var signedIn = false;
+    final ok = await _run(() async {
+      signedIn = await _service.signInWithGoogle();
+    });
+    return ok && signedIn;
+  }
+
   Future<bool> register(String name, String email, String password) =>
       _run(() async {
         await _service.register(name, email, password);
@@ -153,7 +185,9 @@ class AuthProvider with ChangeNotifier {
     _linkResendAt = DateTime.now().add(const Duration(seconds: 60));
   });
   Future<bool> refreshPermissions() => _run(() async {
-    await _service.auth.currentUser?.getIdTokenResult(true);
+    final user = _service.auth.currentUser;
+    final allowed = await _service.hasAdminAccess(forceRefresh: true);
+    if (user != null && _user?.uid == user.uid) _isAdmin = allowed;
   });
   Future<bool> resetPassword(String email) =>
       _run(() => _service.resetPassword(email));
@@ -164,8 +198,12 @@ class AuthProvider with ChangeNotifier {
   Future<void> logout() async {
     await _service.auth.signOut();
     _generation++;
+    await _approvalSubscription?.cancel();
+    _approvalSubscription = null;
     _user = null;
     _isAdmin = false;
+    _approvedAdmin = false;
+    _approvalUid = null;
     _pendingEmail = null;
     _verificationDelivery = null;
     _resendAt = null;
@@ -179,6 +217,7 @@ class AuthProvider with ChangeNotifier {
   void dispose() {
     _generation++;
     _subscription?.cancel();
+    _approvalSubscription?.cancel();
     super.dispose();
   }
 }

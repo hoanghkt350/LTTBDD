@@ -50,6 +50,7 @@ dependencies:
   flutter_timezone: ^5.1.1
   path_provider: ^2.1.6
   cloud_functions: ^7.0.1
+  google_sign_in: 7.2.0
 
 dev_dependencies:
   integration_test:
@@ -75,6 +76,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/branding/google-g.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

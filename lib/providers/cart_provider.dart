@@ -202,4 +202,11 @@ class CartProvider with ChangeNotifier {
     busy = false;
     notifyListeners();
   }
+
+  // Use only after the server has confirmed that this attempt failed.
+  void resetFailedCheckout() {
+    _checkoutId = null;
+    _persist();
+    notifyListeners();
+  }
 }

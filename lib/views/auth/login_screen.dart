@@ -65,6 +65,14 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _googleSignIn() async {
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.loginWithGoogle();
+    if (!mounted || ok || auth.error == null) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(auth.error!)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -113,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 8),
                     Text(
                       _register
-                          ? 'Nhận mã xác nhận qua email để bảo vệ tài khoản.'
+                          ? 'Tạo tài khoản để lưu hồ sơ và chăm sóc thú cưng.'
                           : 'Người bạn nhỏ đang chờ bạn đấy!',
                       style: const TextStyle(color: AppTheme.textLight),
                     ),
@@ -214,6 +222,39 @@ class _LoginScreenState extends State<LoginScreen> {
                             : 'ĐĂNG NHẬP',
                       ),
                     ),
+                    if (auth.supportsGoogleSignIn) ...[
+                      const SizedBox(height: 20),
+                      const Row(
+                        children: [
+                          Expanded(child: Divider()),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'hoặc',
+                              style: TextStyle(color: AppTheme.textLight),
+                            ),
+                          ),
+                          Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      OutlinedButton.icon(
+                        key: const ValueKey('google-sign-in'),
+                        onPressed: auth.isLoading ? null : _googleSignIn,
+                        icon: Image.asset(
+                          'assets/branding/google-g.png',
+                          width: 20,
+                          height: 20,
+                          excludeFromSemantics: true,
+                        ),
+                        label: const Text('Tiếp tục với Google'),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppTheme.textDark,
+                          minimumSize: const Size.fromHeight(52),
+                        ),
+                      ),
+                    ],
                     TextButton(
                       onPressed: auth.isLoading
                           ? null

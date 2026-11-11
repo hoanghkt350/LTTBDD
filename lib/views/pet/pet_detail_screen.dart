@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../../models/pet_model.dart';
 import '../../providers/pet_provider.dart';
 import '../../services/app_error.dart';
+import '../../services/health_appointments.dart';
+import '../../widgets/appointment_status_badge.dart';
 import 'add_pet_screen.dart';
 import 'pet_avatar.dart';
 import 'health_record_dialog.dart';
@@ -102,6 +104,14 @@ class PetDetailScreen extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           const SizedBox(height: 24),
+          if (provider.notificationError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                provider.notificationError!,
+                style: TextStyle(color: Colors.orange.shade900),
+              ),
+            ),
           Row(
             children: [
               const Expanded(
@@ -141,17 +151,65 @@ class PetDetailScreen extends StatelessWidget {
                       ),
                     ),
                     Text('Ngày thực hiện: ${r.administeredDate}'),
-                    if (r.nextDueDate != null)
+                    if (DateTime.tryParse(r.nextDueDate ?? '') != null) ...[
                       Text('Hẹn tiếp theo: ${r.nextDueDate}'),
+                      AppointmentStatusBadge(
+                        status: HealthAppointment(
+                          record: r,
+                          pet: current,
+                        ).status(DateTime.now()),
+                      ),
+                      Text(
+                        r.nextDueCompleted
+                            ? 'Lịch hẹn đã hoàn tất, thông báo đã dừng.'
+                            : r.nextDueReminderEnabled
+                            ? 'Nhắc lúc ${r.nextDueReminderTime} trước 1 ngày và vào ngày hẹn.'
+                            : 'Đã tắt nhắc lịch hẹn.',
+                      ),
+                    ],
                     if (r.veterinarian?.isNotEmpty ?? false)
                       Text('Bác sĩ: ${r.veterinarian}'),
                     if (r.clinicName?.isNotEmpty ?? false)
                       Text('Phòng khám: ${r.clinicName}'),
                     Text('Chi phí: ${currency.format(r.cost)}'),
                     if (r.notes?.isNotEmpty ?? false) Text(r.notes!),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
                       children: [
+                        if (r.nextDueDate != null)
+                          TextButton.icon(
+                            icon: Icon(
+                              r.nextDueCompleted
+                                  ? Icons.undo
+                                  : Icons.check_circle_outline,
+                            ),
+                            label: Text(
+                              r.nextDueCompleted
+                                  ? 'Mở lại lịch hẹn'
+                                  : 'Đánh dấu đã thực hiện',
+                            ),
+                            onPressed: locked
+                                ? null
+                                : () async {
+                                    try {
+                                      await provider.completeAppointment(
+                                        r.id!,
+                                        !r.nextDueCompleted,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(errorMessage(error)),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                          ),
                         TextButton(
                           onPressed: locked
                               ? null

@@ -54,8 +54,7 @@ void main() {
         );
         expect(user.email, email);
         expect(service.auth.currentUser!.emailVerified, isFalse);
-        expect(() => service.uid, throwsStateError);
-        await verifyEmulatorEmail();
+        expect(service.uid, user.uid);
         await service.saveProfile(
           user.copyWith(phoneNumber: '0901234567', address: '123 Test Street'),
         );
@@ -213,10 +212,8 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(3), 'TestPass123!');
     await tester.ensureVisible(find.text('TẠO TÀI KHOẢN'));
     await tester.tap(find.text('TẠO TÀI KHOẢN'));
-    await waitFor(find.text('Xác nhận email của bạn'));
-    expect(find.byType(NavigationBar), findsNothing);
-    await tester.runAsync(verifyEmulatorEmail);
     await waitFor(find.byType(NavigationBar));
+    expect(find.text('Xác nhận email của bạn'), findsNothing);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Thêm thú cưng').first);
     await tester.tap(find.text('Thêm thú cưng').first);

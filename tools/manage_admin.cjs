@@ -16,6 +16,25 @@ async function changeAdmin({ request, project, email, enabled }) {
   const attributes = JSON.stringify(claims);
   if (Buffer.byteLength(attributes, 'utf8') > 1000) throw new Error('Custom claims exceed the Firebase limit.');
   await request(endpoint + '/accounts:update', {method:'POST', body:{localId:user.localId, customAttributes:attributes}});
+  // Revocation also removes a grant approved inside the app.
+  if (!enabled) {
+    const document = 'https://firestore.googleapis.com/v1/projects/' + project
+      + '/databases/(default)/documents/admin_requests/' + encodeURIComponent(user.localId);
+    let existing;
+    try { existing = await request(document); }
+    catch (error) { if (error.status !== 404) throw error; }
+    if (existing?.fields?.status?.stringValue === 'approved') {
+      const now = new Date().toISOString();
+      const fields = {
+        status:{stringValue:'revoked'}, updatedAt:{timestampValue:now}, reviewedAt:{timestampValue:now},
+        reviewedBy:{stringValue:'project-owner-cli'},
+        reviewNote:{stringValue:'Chủ dự án đã thu hồi quyền qua công cụ quản trị.'},
+      };
+      const mask = Object.keys(fields).map(key => 'updateMask.fieldPaths=' + key).join('&');
+      await request(document + '?' + mask + '&currentDocument.updateTime=' + encodeURIComponent(existing.updateTime),
+        {method:'PATCH',body:{fields}});
+    }
+  }
   return {email:user.email, uid:user.localId, admin:enabled, emailVerified:user.emailVerified === true};
 }
 
@@ -28,7 +47,6 @@ async function main() {
   const result = await changeAdmin({request, project, email, enabled:action === 'grant'});
   console.log(JSON.stringify(result, null, 2));
   console.log('Sign in again or refresh account permissions in PawPals to receive the updated role.');
-  if (!result.emailVerified) console.log('Email verification is still required before administrator access.');
 }
 
 if (require.main === module) main().catch(error => {console.error(error.message); process.exitCode=1;});

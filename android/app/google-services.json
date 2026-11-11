@@ -12,7 +12,20 @@
           "package_name": "vn.edu.hutech.pawpals_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1076306473515-s2ggvc8tn9qf5pgace5cmn34vf4cq3a7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "vn.edu.hutech.pawpals_app",
+            "certificate_hash": "b8c94bc53bfea2bef1f14a1c25b146d4e7b3299c"
+          }
+        },
+        {
+          "client_id": "1076306473515-k555pllsgs33ols3tlitqgsn3ncd0bi7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDXmNfdRvQ-SH3_B4t4txffzRjXOqSgOQk"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1076306473515-k555pllsgs33ols3tlitqgsn3ncd0bi7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

@@ -1,14 +1,24 @@
 # PawPals
 
+## Thanh toán online MoMo
+
+Đã bổ sung lựa chọn **Ví MoMo** trong giỏ hàng, mở trang thanh toán, theo dõi kết quả và tiếp tục thanh toán từ lịch sử đơn. Máy chủ tính lại số tiền, giữ kho, xác minh IPN, đối soát tự động và hoàn kho khi MoMo xác nhận thất bại. Sandbox được đánh dấu riêng và không giao hàng. **Cần tài khoản đối tác MoMo, cấu hình secret và triển khai Cloud Functions/Rules trước khi dùng với dịch vụ thật**. Xem [hướng dẫn thanh toán MoMo](docs/online-payments.md).
+
 ## Quản trị và phân quyền
+
+Người dùng đã đăng nhập có thể vào **Tài khoản → Yêu cầu quyền quản trị** để gửi lý do và theo dõi kết quả. Admin duyệt/từ chối kèm phản hồi hoặc thu hồi quyền trong **Trung tâm quản trị → Yêu cầu cấp quyền**. Cần triển khai bản Firestore Rules đi kèm để dùng luồng này trên Firebase thật; xem [hướng dẫn phân quyền](docs/admin-management.md).
 
 Đã bổ sung vai trò người dùng/quản trị viên, kiểm tra quyền bằng Firebase custom claims và màn hình **Tài khoản → Trung tâm quản trị**. Quản trị viên quản lý sản phẩm, đơn hàng, phòng khám, bài viết và xem hồ sơ tài khoản. Xem [hướng dẫn sử dụng, cấp/thu hồi quyền](docs/admin-management.md).
 
-## Cập nhật xác nhận email và logo
+## Đăng nhập Google và email/mật khẩu
 
-Đã bổ sung đăng ký bằng mã OTP 6 số, màn hình xác nhận email, giới hạn gửi/nhập sai, chính sách mật khẩu đăng ký và logo mới. **Để gửi mã OTP cần kích hoạt Cloud Functions và SMTP**; project hiện chưa bật thanh toán. Khi dịch vụ OTP chưa hoạt động, có thể xác nhận bằng liên kết email của Firebase Auth. Rules đã yêu cầu email được xác nhận. Xem [hướng dẫn cấu hình và kiểm thử](docs/email-verification.md).
+Đã bỏ bước xác nhận email bắt buộc. Tài khoản email/mật khẩu vào ứng dụng trực tiếp; có thêm nút **Tiếp tục với Google** ở màn hình đăng nhập và đăng ký. Google dùng Firebase Auth, không cần triển khai Cloud Functions hay cấu hình SMTP. Bật Google trong Firebase Console, chạy `node tools/configure_google.cjs` để đăng ký SHA Android và tải cấu hình OAuth, sau đó triển khai Rules và build lại APK. Xem [hướng dẫn Google](docs/google-sign-in.md).
 
 Ứng dụng Flutter cho Android: hồ sơ thú cưng, sổ sức khỏe, nhắc lịch hàng ngày, cửa hàng và đơn hàng COD.
+
+Đã bổ sung **lịch tiêm/tái khám theo ngày hẹn**: chọn giờ nhắc, nhắc trước một ngày và trong ngày hẹn, theo dõi đến hạn/quá hạn, đánh dấu hoàn tất hoặc mở lại. Xem [hướng dẫn lịch hẹn](docs/health-appointments.md).
+
+**Trung tâm quản trị → Tổng quan** hiển thị đơn chờ xác nhận/đang giao, đơn mới hôm nay, doanh thu từ đơn hoàn thành hôm nay/trong tháng và cảnh báo tồn kho ≤ 5. Thống kê dùng truy vấn tổng hợp trên server, không bị giới hạn bởi số đơn đã tải trong danh sách. Xem [cách tính và triển khai index](docs/admin-management.md#tổng-quan-hoạt-động).
 
 ## Firebase của dự án này
 
@@ -90,7 +100,7 @@ Không nhập dữ liệu phòng khám giả làm thông tin cấp cứu thật.
 - Xóa được lưu bằng tombstone trên cloud để các thiết bị nhận biết. Dữ liệu demo của database cũ được giữ nguyên trên máy, không tự gán cho tài khoản thật.
 - Ảnh được nén thành thumbnail và lưu vào document, không phải kho lưu ảnh gốc.
 - Lịch nhắc dùng giờ địa phương của thiết bị, đặt lịch inexact để không cần quyền exact alarm. Android có thể trì hoãn do tiết kiệm pin; nếu force-stop, mở lại app để lập lịch. Đăng xuất tạm dừng thông báo trên thiết bị. Chưa có push từ server.
-- COD không thu tiền online. Không có tích hợp cổng thanh toán hoặc vận chuyển thật.
+- COD thu tiền khi nhận hàng; luồng online MoMo cần kích hoạt theo [hướng dẫn](docs/online-payments.md). Chưa có hoàn tiền tự động hoặc tích hợp đơn vị vận chuyển thật.
 - Bản release hiện dùng signing debug của đồ án; cần keystore riêng trước khi phát hành.
 
 ## 6. Kiểm tra

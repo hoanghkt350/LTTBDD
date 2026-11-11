@@ -10,7 +10,6 @@ import 'providers/clinic_provider.dart';
 import 'services/firebase_service.dart';
 import 'views/auth/login_screen.dart';
 import 'views/auth/app_startup.dart';
-import 'views/auth/verify_email_screen.dart';
 import 'views/main_screen.dart';
 
 Future<void> main() async {
@@ -47,8 +46,6 @@ class PawPalsApp extends StatelessWidget {
               ? const _SetupScreen()
               : auth.isCheckingSession
               ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-              : auth.needsEmailVerification
-              ? const VerifyEmailScreen()
               : auth.isAuthenticated
               ? const MainScreen()
               : const LoginScreen(),

@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../../services/firebase_service.dart';
 import '../../services/app_error.dart';
+import '../../services/order_payment.dart';
+import '../cart/momo_payment_screen.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -111,11 +113,30 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     'Người nhận: ${recipient['name']} • ${recipient['phone']}',
                   ),
                   Text('Địa chỉ: ${recipient['address']}'),
-                  Text('Thanh toán khi nhận hàng (COD)'),
+                  Text(OrderPayment.description(order)),
+                  if (order['paymentTransactionId'] != null)
+                    SelectableText(
+                      'Mã giao dịch MoMo: ${order['paymentTransactionId']}',
+                    ),
                   Text(
                     'Vận chuyển: ${_money.format(order['shippingFee'])} • Giảm: ${_money.format(order['discountAmount'])}',
                   ),
-                  if (order['status'] == 'Chờ xác nhận')
+                  if (OrderPayment.isOnline(order))
+                    TextButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MomoPaymentScreen(orderId: id),
+                        ),
+                      ),
+                      icon: const Icon(Icons.account_balance_wallet_outlined),
+                      label: Text(
+                        order['paymentStatus'] == 'pending'
+                            ? 'Tiếp tục / kiểm tra thanh toán MoMo'
+                            : 'Chi tiết thanh toán MoMo',
+                      ),
+                    ),
+                  if (OrderPayment.canCancel(order))
                     TextButton(
                       onPressed: _busy.contains(id) ? null : () => _cancel(id),
                       child: Text(

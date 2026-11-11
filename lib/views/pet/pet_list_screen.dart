@@ -8,6 +8,7 @@ import 'add_pet_screen.dart';
 import 'pet_detail_screen.dart';
 import 'pet_avatar.dart';
 import 'reminder_dialog.dart';
+import 'health_appointments_section.dart';
 
 class PetListScreen extends StatelessWidget {
   const PetListScreen({super.key});
@@ -121,6 +122,13 @@ class PetListScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Lịch tiêm & tái khám',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const HealthAppointmentsSection(),
                 const SizedBox(height: 24),
                 Row(
                   children: [

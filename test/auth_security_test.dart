@@ -42,6 +42,21 @@ class _Service extends Fake implements FirebaseService {
   final _Auth auth = _Auth();
   int reads = 0;
   Completer<AppUser>? profile;
+  final approvals = <String, StreamController<bool>>{};
+  bool googleResult = true;
+  Object? googleError;
+  int googleCalls = 0;
+  @override
+  Future<bool> signInWithGoogle() async {
+    googleCalls++;
+    if (googleError != null) throw googleError!;
+    return googleResult;
+  }
+
+  @override
+  Stream<bool> watchAdminApproval(String uid) => approvals
+      .putIfAbsent(uid, () => StreamController<bool>.broadcast())
+      .stream;
   @override
   bool get isReady => true;
   @override
@@ -57,34 +72,84 @@ class _Service extends Fake implements FirebaseService {
 Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
-  test('only a verified boolean admin token grants management access and logout clears it', () async {
+  test('approved requests update the current role, survive token refresh and clear on revoke or account change', () async {
     final service = _Service();
     final auth = AuthProvider(service: service);
     await auth.checkAuthStatus();
-    for (final claim in [null, false, 'true', 1]) {
-      service.auth.changes.add(
-        _User('alice', emailVerified: true, admin: claim),
-      );
-      await _flush();
-      expect(auth.isAdmin, isFalse);
-    }
-    service.auth.changes.add(_User('alice', admin: true));
+    final user = _User('alice', emailVerified: true);
+    service.auth.changes.add(user);
     await _flush();
     expect(auth.isAdmin, isFalse);
-    service.auth.changes.add(_User('alice', emailVerified: true, admin: true));
+    service.approvals['alice']!.add(true);
     await _flush();
     expect(auth.isAdmin, isTrue);
-    service.auth.changes.add(_User('alice', emailVerified: true));
+    final roles = <bool>[];
+    void recordRole() => roles.add(auth.isAdmin);
+    auth.addListener(recordRole);
+    service.auth.changes.add(user);
+    await _flush();
+    expect(auth.isAdmin, isTrue);
+    expect(roles, everyElement(isTrue));
+    auth.removeListener(recordRole);
+    service.approvals['alice']!.add(false);
     await _flush();
     expect(auth.isAdmin, isFalse);
-    service.auth.changes.add(_User('alice', emailVerified: true, admin: true));
+    service.approvals['alice']!.add(true);
     await _flush();
-    await auth.logout();
+    service.auth.changes.add(_User('bob', emailVerified: true));
+    await _flush();
+    expect(auth.isAdmin, isFalse);
+    service.approvals['alice']!.add(true);
+    await _flush();
+    expect(auth.isAdmin, isFalse);
+    service.approvals['bob']!.add(true);
+    await _flush();
+    expect(auth.isAdmin, isTrue);
+    service.approvals['bob']!.addError(StateError('Connection failed'));
     await _flush();
     expect(auth.isAdmin, isFalse);
     auth.dispose();
     await service.auth.changes.close();
+    for (final controller in service.approvals.values) {
+      await controller.close();
+    }
   });
+  test(
+    'only a boolean admin token grants management access and logout clears it',
+    () async {
+      final service = _Service();
+      final auth = AuthProvider(service: service);
+      await auth.checkAuthStatus();
+      for (final claim in [null, false, 'true', 1]) {
+        service.auth.changes.add(
+          _User('alice', emailVerified: true, admin: claim),
+        );
+        await _flush();
+        expect(auth.isAdmin, isFalse);
+      }
+      service.auth.changes.add(_User('alice', admin: true));
+      await _flush();
+      expect(auth.isAuthenticated, isTrue);
+      expect(auth.isAdmin, isTrue);
+      service.auth.changes.add(
+        _User('alice', emailVerified: true, admin: true),
+      );
+      await _flush();
+      expect(auth.isAdmin, isTrue);
+      service.auth.changes.add(_User('alice', emailVerified: true));
+      await _flush();
+      expect(auth.isAdmin, isFalse);
+      service.auth.changes.add(
+        _User('alice', emailVerified: true, admin: true),
+      );
+      await _flush();
+      await auth.logout();
+      await _flush();
+      expect(auth.isAdmin, isFalse);
+      auth.dispose();
+      await service.auth.changes.close();
+    },
+  );
   test('registration requires a strong password', () {
     for (final password in [
       '',
@@ -101,26 +166,51 @@ void main() {
   });
 
   test(
-    'unverified sessions never load private profiles or become authenticated',
+    'email sessions open without verification and logout clears the session',
     () async {
       final service = _Service();
       final auth = AuthProvider(service: service);
       await auth.checkAuthStatus();
       service.auth.changes.add(_User('alice'));
       await _flush();
-      expect(auth.isAuthenticated, isFalse);
-      expect(auth.user, isNull);
-      expect(auth.pendingEmail, 'alice@gmail.com');
-      expect(service.reads, 0);
+      expect(auth.isAuthenticated, isTrue);
+      expect(auth.user!.uid, 'alice');
+      expect(auth.pendingEmail, isNull);
+      expect(auth.needsEmailVerification, isFalse);
+      expect(service.reads, 1);
       service.auth.changes.add(_User('alice', emailVerified: true));
       await _flush();
       expect(auth.isAuthenticated, isTrue);
       expect(auth.pendingEmail, isNull);
-      expect(service.reads, 1);
+      expect(service.reads, 2);
       await auth.logout();
       await _flush();
       expect(auth.isAuthenticated, isFalse);
       expect(auth.needsEmailVerification, isFalse);
+      auth.dispose();
+      await service.auth.changes.close();
+    },
+  );
+
+  test(
+    'Google sign-in succeeds, cancellation is quiet and failure is retryable',
+    () async {
+      final service = _Service();
+      final auth = AuthProvider(service: service);
+      expect(await auth.loginWithGoogle(), isTrue);
+      expect(service.googleCalls, 1);
+      service.googleResult = false;
+      expect(await auth.loginWithGoogle(), isFalse);
+      expect(auth.error, isNull);
+      expect(auth.isLoading, isFalse);
+      service.googleError = StateError('Không kết nối được Google.');
+      expect(await auth.loginWithGoogle(), isFalse);
+      expect(auth.error, 'Không kết nối được Google.');
+      expect(auth.isLoading, isFalse);
+      service.googleError = null;
+      service.googleResult = true;
+      expect(await auth.loginWithGoogle(), isTrue);
+      expect(auth.error, isNull);
       auth.dispose();
       await service.auth.changes.close();
     },

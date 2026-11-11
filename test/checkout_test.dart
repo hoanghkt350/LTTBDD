@@ -16,6 +16,18 @@ Product product(String id, {int stock = 10, double price = 100000}) => Product(
 );
 
 void main() {
+  test(
+    'a confirmed failed payment resets its retry ID and preserves the cart',
+    () async {
+      final cart = CartProvider()..addItem(product('p1'));
+      expect(await cart.beginCheckout(() => 'failed-order'), 'failed-order');
+      cart.resetFailedCheckout();
+      cart.endCheckout();
+      expect(cart.itemCount, 1);
+      expect(await cart.beginCheckout(() => 'new-order'), 'new-order');
+      cart.endCheckout();
+    },
+  );
   test('FREESHIP removes shipping without discounting items', () {
     final cart = CartProvider()..addItem(product('p1'));
     expect(cart.shippingFee, 25000);

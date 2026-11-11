@@ -5,6 +5,9 @@ class HealthRecord {
   final String title;
   final String administeredDate;
   final String? nextDueDate;
+  final bool nextDueReminderEnabled;
+  final String nextDueReminderTime;
+  final bool nextDueCompleted;
   final String? veterinarian;
   final String? clinicName;
   final String? notes;
@@ -17,6 +20,9 @@ class HealthRecord {
     required this.title,
     required this.administeredDate,
     this.nextDueDate,
+    this.nextDueReminderEnabled = true,
+    this.nextDueReminderTime = '08:00',
+    this.nextDueCompleted = false,
     this.veterinarian,
     this.clinicName,
     this.notes,
@@ -31,6 +37,9 @@ class HealthRecord {
       'title': title,
       'administered_date': administeredDate,
       'next_due_date': nextDueDate,
+      'next_due_reminder_enabled': nextDueReminderEnabled,
+      'next_due_reminder_time': nextDueReminderTime,
+      'next_due_completed': nextDueCompleted,
       'veterinarian': veterinarian,
       'clinic_name': clinicName,
       'notes': notes,
@@ -46,6 +55,9 @@ class HealthRecord {
       title: map['title'] as String,
       administeredDate: map['administered_date'] as String,
       nextDueDate: map['next_due_date'] as String?,
+      nextDueReminderEnabled: map['next_due_reminder_enabled'] as bool? ?? true,
+      nextDueReminderTime: map['next_due_reminder_time'] as String? ?? '08:00',
+      nextDueCompleted: map['next_due_completed'] as bool? ?? false,
       veterinarian: map['veterinarian'] as String?,
       clinicName: map['clinic_name'] as String?,
       notes: map['notes'] as String?,

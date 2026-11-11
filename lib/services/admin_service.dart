@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'firebase_service.dart';
+import 'admin_request_service.dart';
 import 'order_workflow.dart';
+import 'order_payment.dart';
+import '../models/admin_dashboard_model.dart';
 
 /// UI guards improve navigation; Firebase Rules enforce every permission.
 class AdminService {
@@ -14,7 +17,65 @@ class AdminService {
     'clinics',
     'articles',
     'users',
+    'admin_requests',
   ];
+
+  Future<AdminDashboardData> loadDashboard({DateTime? now}) async {
+    await _firebase.requireAdmin();
+    final current = now ?? DateTime.now();
+    final today = DateTime(current.year, current.month, current.day);
+    final tomorrow = DateTime(current.year, current.month, current.day + 1);
+    final month = DateTime(current.year, current.month);
+    final nextMonth = DateTime(current.year, current.month + 1);
+    final orders = _firebase.firestore.collection('orders');
+    Future<AggregateQuerySnapshot> completed(DateTime start, DateTime end) =>
+        orders
+            .where('status', isEqualTo: OrderWorkflow.completed)
+            .where(
+              'statusUpdatedAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(start),
+            )
+            .where('statusUpdatedAt', isLessThan: Timestamp.fromDate(end))
+            .aggregate(count(), sum('totalAmount'))
+            .get();
+    final (pending, shipping, created, dayTotal, monthTotal, products) = await (
+      orders.where('status', isEqualTo: OrderWorkflow.pending).count().get(),
+      orders.where('status', isEqualTo: OrderWorkflow.shipping).count().get(),
+      orders
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(today))
+          .where('createdAt', isLessThan: Timestamp.fromDate(tomorrow))
+          .count()
+          .get(),
+      completed(today, tomorrow),
+      completed(month, nextMonth),
+      _firebase.firestore
+          .collection('products')
+          .where('stock', isLessThanOrEqualTo: 5)
+          .orderBy('stock')
+          .get(const GetOptions(source: Source.server)),
+    ).wait;
+    final lowStock = products.docs
+        .where((doc) => doc.data()['isActive'] != false)
+        .map(
+          (doc) => LowStockProduct(
+            id: doc.id,
+            name: doc.data()['name'] as String? ?? 'Sản phẩm',
+            stock: (doc.data()['stock'] as num).toInt(),
+          ),
+        )
+        .toList();
+    return AdminDashboardData(
+      updatedAt: current,
+      pendingOrders: pending.count ?? 0,
+      shippingOrders: shipping.count ?? 0,
+      newOrdersToday: created.count ?? 0,
+      completedToday: dayTotal.count ?? 0,
+      completedMonth: monthTotal.count ?? 0,
+      revenueToday: dayTotal.getSum('totalAmount') ?? 0,
+      revenueMonth: monthTotal.getSum('totalAmount') ?? 0,
+      lowStock: List.unmodifiable(lowStock),
+    );
+  }
 
   Stream<List<Map<String, dynamic>>> watch(
     String collection, {
@@ -30,8 +91,12 @@ class AdminService {
     yield* _firebase.firestore
         .collection(collection)
         .orderBy(
-          collection == 'orders' ? 'createdAt' : FieldPath.documentId,
-          descending: collection == 'orders',
+          collection == 'orders'
+              ? 'createdAt'
+              : collection == 'admin_requests'
+              ? 'updatedAt'
+              : FieldPath.documentId,
+          descending: collection == 'orders' || collection == 'admin_requests',
         )
         .limit(limit)
         .snapshots(includeMetadataChanges: true)
@@ -44,6 +109,14 @@ class AdminService {
               .toList(),
         );
   }
+
+  Future<void> reviewAdminRequest(
+    String uid,
+    String decision, {
+    String note = '',
+  }) =>
+      AdminRequestService(firebase: _firebase)
+          .review(uid, decision, note: note);
 
   Future<void> save(
     String collection,
@@ -111,6 +184,9 @@ class AdminService {
     ) async {
       final snapshot = await tx.get(ref);
       if (!snapshot.exists) return 'Không tìm thấy đơn hàng.';
+      if (!OrderPayment.canFulfill(snapshot.data()!)) {
+        return 'Đơn MoMo chưa thanh toán thành công hoặc là đơn thử nghiệm.';
+      }
       final previous = snapshot.data()!['status'] as String;
       if (previous == status) return null;
       if (!OrderWorkflow.nextStatuses(previous).contains(status)) {

@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/product_model.dart';
 import '../models/user_model.dart';
@@ -17,6 +18,12 @@ class FirebaseService {
   static String? initializationError;
   static FirebaseApp? _app;
   static Future<void>? _initializing;
+  Future<void>? _googleInitializing;
+  static bool get supportsGoogleSignIn =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
   bool get isReady => isFirebaseInitialized;
   fb.FirebaseAuth get auth {
     _ensureReady();
@@ -35,16 +42,32 @@ class FirebaseService {
 
   Future<void> requireAdmin() async {
     final user = auth.currentUser;
-    if (user == null || !user.emailVerified) {
-      throw StateError(
-        'Bạn cần đăng nhập bằng tài khoản quản trị đã xác nhận email.',
-      );
+    if (user == null) {
+      throw StateError('Bạn cần đăng nhập bằng tài khoản quản trị.');
     }
-    final token = await user.getIdTokenResult(true);
-    if (token.claims?['admin'] != true) {
+    if (!await hasAdminAccess(forceRefresh: true)) {
       throw StateError('Bạn không có quyền quản trị.');
     }
   }
+
+  Future<bool> hasAdminAccess({bool forceRefresh = false}) async {
+    final user = auth.currentUser;
+    if (user == null) return false;
+    final token = await user.getIdTokenResult(forceRefresh);
+    if (token.claims?['admin'] == true) return true;
+    final request = await firestore
+        .collection('admin_requests')
+        .doc(user.uid)
+        .get(const GetOptions(source: Source.server));
+    return request.data()?['status'] == 'approved';
+  }
+
+  Stream<bool> watchAdminApproval(String uid) => firestore
+      .collection('admin_requests')
+      .doc(uid)
+      .snapshots(includeMetadataChanges: true)
+      .where((snapshot) => !snapshot.metadata.isFromCache)
+      .map((snapshot) => snapshot.data()?['status'] == 'approved');
 
   void _ensureReady() {
     if (!isFirebaseInitialized) {
@@ -57,7 +80,6 @@ class FirebaseService {
   String get uid {
     final user = auth.currentUser;
     if (user == null) throw StateError('Bạn cần đăng nhập lại.');
-    if (!user.emailVerified) throw StateError('Vui lòng xác nhận email trước.');
     return user.uid;
   }
 
@@ -150,13 +172,70 @@ class FirebaseService {
         : profileFromAuth(user);
   }
 
+  Future<void> _createProfileIfMissing(fb.User user) async {
+    final reference = firestore.collection('users').doc(user.uid);
+    await firestore
+        .runTransaction((transaction) async {
+          final current = await transaction.get(reference);
+          if (!current.exists) {
+            transaction.set(reference, profileFromAuth(user).toJson());
+          }
+        })
+        .timeout(const Duration(seconds: 12));
+  }
+
   Future<AppUser> signInWithEmail(String email, String password) async {
     final credential = await auth.signInWithEmailAndPassword(
       email: email,
       password: password,
     );
     final user = credential.user!;
-    return user.emailVerified ? getProfile(user) : profileFromAuth(user);
+    await _createProfileIfMissing(user);
+    return getProfile(user);
+  }
+
+  Future<bool> signInWithGoogle() async {
+    if (!supportsGoogleSignIn) {
+      throw StateError('Đăng nhập Google hỗ trợ Android, iOS, macOS và Web.');
+    }
+    try {
+      if (kIsWeb) {
+        final provider = fb.GoogleAuthProvider()
+          ..setCustomParameters({'prompt': 'select_account'});
+        await auth.signInWithPopup(provider);
+      } else {
+        final google = GoogleSignIn.instance;
+        try {
+          await (_googleInitializing ??= google.initialize());
+        } catch (_) {
+          _googleInitializing = null;
+          rethrow;
+        }
+        // Allow choosing a different account after signing out of PawPals.
+        await google.signOut();
+        final account = await google.authenticate();
+        final idToken = account.authentication.idToken;
+        if (idToken == null) {
+          throw StateError(
+            'Google chưa cung cấp thông tin đăng nhập. Vui lòng thử lại.',
+          );
+        }
+        await auth.signInWithCredential(
+          fb.GoogleAuthProvider.credential(idToken: idToken),
+        );
+      }
+      await _createProfileIfMissing(auth.currentUser!);
+      return true;
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) return false;
+      rethrow;
+    } on fb.FirebaseAuthException catch (e) {
+      if (e.code == 'popup-closed-by-user' ||
+          e.code == 'cancelled-popup-request') {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   Future<AppUser> register(String name, String email, String password) async {
@@ -170,8 +249,15 @@ class FirebaseService {
       password: password,
     );
     await credential.user!.updateDisplayName(name.trim());
-    // No Firestore reads/writes until the server has verified the email.
-    return profileFromAuth(credential.user!).copyWith(displayName: name.trim());
+    // The auth listener opens the session and loads the user's profile.
+    final profile = profileFromAuth(credential.user!)
+        .copyWith(displayName: name.trim());
+    await firestore
+        .collection('users')
+        .doc(profile.uid)
+        .set(profile.toJson(), SetOptions(merge: true))
+        .timeout(const Duration(seconds: 12));
+    return profile;
   }
 
   Future<EmailVerificationDelivery?> sendVerificationCode() async {
@@ -284,6 +370,11 @@ class FirebaseService {
         if (previous.data()!['userId'] != owner) {
           throw StateError('Mã đơn không hợp lệ.');
         }
+        if (previous.data()!['paymentMethod'] != 'COD') {
+          throw StateError(
+            'Đơn này đã chọn thanh toán online. Hãy kiểm tra lịch sử đơn hàng.',
+          );
+        }
         return orderId;
       }
       final products = <String, Product>{};
@@ -378,6 +469,11 @@ class FirebaseService {
         throw StateError('Không tìm thấy đơn hàng.');
       }
       final order = doc.data()!;
+      if (order['paymentMethod'] == 'MOMO') {
+        throw StateError(
+          'Đơn MoMo được xử lý theo kết quả thanh toán. Nếu đã trả tiền, vui lòng liên hệ cửa hàng để đối soát hoặc hoàn tiền.',
+        );
+      }
       if (order['status'] == 'Đã hủy') return;
       if (order['status'] != 'Chờ xác nhận') {
         throw StateError('Đơn hàng đã xử lý, không thể hủy.');

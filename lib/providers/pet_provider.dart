@@ -12,10 +12,12 @@ import '../services/database_helper.dart';
 import '../services/firebase_service.dart';
 import '../services/notification_service.dart';
 import '../services/app_error.dart';
+import '../services/health_appointments.dart';
 
 class PetProvider with ChangeNotifier {
   final DatabaseHelper store;
-  PetProvider(String uid) : store = DatabaseHelper(uid);
+  PetProvider(String uid, {DatabaseHelper? store})
+    : store = store ?? DatabaseHelper(uid);
   List<Pet> _pets = [];
   List<Reminder> _reminders = [];
   final Map<int, List<HealthRecord>> _records = {};
@@ -25,6 +27,19 @@ class PetProvider with ChangeNotifier {
   bool _loaded = false;
   List<Pet> get pets => List.unmodifiable(_pets);
   List<Reminder> get reminders => List.unmodifiable(_reminders);
+  List<HealthAppointment> get appointments {
+    final result = <HealthAppointment>[];
+    for (final pet in _pets) {
+      for (final record in _records[pet.id] ?? <HealthRecord>[]) {
+        if (DateTime.tryParse(record.nextDueDate ?? '') != null) {
+          result.add(HealthAppointment(record: record, pet: pet));
+        }
+      }
+    }
+    result.sort((a, b) => a.date.compareTo(b.date));
+    return List.unmodifiable(result);
+  }
+
   bool get isLoading => _isLoading;
   bool get isSyncing => _isSyncing;
   void _notify() {
@@ -72,8 +87,8 @@ class PetProvider with ChangeNotifier {
     try {
       await NotificationService.instance.replace(
         _reminders,
-        requestPermission:
-            requestPermission && _reminders.any((r) => r.isActive == 1),
+        appointments: appointments,
+        requestPermission: requestPermission,
       );
       notificationError = null;
     } catch (e) {
@@ -97,6 +112,12 @@ class PetProvider with ChangeNotifier {
       _notify();
     }
     if (_loaded && !_disposed) unawaited(syncDataToCloud());
+  }
+
+  Future<void> refreshNotificationSchedules() async {
+    if (!_loaded || _disposed) return;
+    await _notifications();
+    _notify();
   }
 
   Future<void> _changed({
@@ -126,7 +147,7 @@ class PetProvider with ChangeNotifier {
       throw StateError('Hồ sơ không tồn tại.');
     }
     await store.put('pets', pet.copyWith(isSynced: 0).toMap());
-    await _changed();
+    await _changed(remindersChanged: true);
   }
 
   Future<void> deletePet(int id) async {
@@ -144,13 +165,35 @@ class PetProvider with ChangeNotifier {
       ...record.toMap(),
       'id': record.id ?? newId(),
     });
-    await _changed();
+    await _changed(
+      remindersChanged: true,
+      requestPermission:
+          record.nextDueDate != null &&
+          record.nextDueReminderEnabled &&
+          !record.nextDueCompleted,
+    );
+  }
+
+  Future<void> completeAppointment(int recordId, bool completed) async {
+    _editable();
+    final record = _records.values
+        .expand((records) => records)
+        .firstWhere((record) => record.id == recordId);
+    if (record.nextDueDate == null) throw StateError('Hồ sơ chưa có ngày hẹn.');
+    await store.put('health_records', {
+      ...record.toMap(),
+      'next_due_completed': completed,
+    });
+    await _changed(
+      remindersChanged: true,
+      requestPermission: !completed && record.nextDueReminderEnabled,
+    );
   }
 
   Future<void> deleteHealthRecord(int id) async {
     _editable();
     await store.remove('health_records', id);
-    await _changed();
+    await _changed(remindersChanged: true);
   }
 
   Future<void> addReminder(Reminder reminder) async {

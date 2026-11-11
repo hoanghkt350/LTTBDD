@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/pawpals_logo.dart';
 import 'orders_screen.dart';
 import '../admin/admin_screen.dart';
+import 'admin_request_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -111,6 +112,19 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (!auth.isAdmin)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.admin_panel_settings_outlined),
+                title: const Text('Yêu cầu quyền quản trị'),
+                subtitle: const Text('Gửi yêu cầu và theo dõi kết quả duyệt'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AdminRequestScreen()),
+                ),
+              ),
+            ),
           if (auth.isAdmin)
             Card(
               child: ListTile(

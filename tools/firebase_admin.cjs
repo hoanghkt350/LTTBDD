@@ -50,7 +50,9 @@ async function adminClient(project) {
     const raw = await response.text();
     const data = raw ? JSON.parse(raw) : {};
     if(!response.ok) {
-      const error = new Error('HTTP '+response.status+': '+(data.error?.message || response.statusText));
+      // Streaming Firestore endpoints return errors inside an array.
+      const apiError = Array.isArray(data) ? data.find(row => row.error)?.error : data.error;
+      const error = new Error('HTTP '+response.status+': '+(apiError?.message || response.statusText));
       error.status = response.status;
       throw error;
     }

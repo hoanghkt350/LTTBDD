@@ -12,6 +12,7 @@ import '../../widgets/pawpals_logo.dart';
 import '../pet/add_pet_screen.dart';
 import '../pet/pet_avatar.dart';
 import '../pet/pet_detail_screen.dart';
+import '../pet/health_appointments_section.dart';
 
 class HomeScreen extends StatelessWidget {
   final Function(int) onTabChange;
@@ -301,6 +302,12 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+              SectionHeading(
+                'Lịch tiêm & tái khám',
+                action: 'Xem tất cả',
+                onTap: () => onTabChange(1),
+              ),
+              const HealthAppointmentsSection(limit: 3),
               SectionHeading(
                 'Lịch nhắc đang bật',
                 action: '${reminders.length} lịch',

@@ -45,12 +45,8 @@ async function main() {
     await signInWithEmailAndPassword(authA,email,password);
     pass('Firebase Auth register, sign-in and wrong-password rejection');
 
-    // Only the owner CLI may verify this run's temporary test account.
-    await api('https://identitytoolkit.googleapis.com/v1/projects/'+project+'/accounts:update', {
-      method:'POST',body:{localId:userA.uid,emailVerified:true},
-    });
-    await userA.reload();
-    await userA.getIdToken(true);
+    assert.equal(userA.emailVerified, false);
+    pass('Email session works without OTP or email verification');
 
     const userPath = 'users/'+userA.uid;
     ownedDocs.add(userPath);

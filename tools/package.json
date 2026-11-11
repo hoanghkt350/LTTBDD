@@ -1,7 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "test:rules": "node --test firestore_rules.test.cjs"
+    "test:rules": "node --test firestore_rules.test.cjs",
+    "test:payments": "node --test firestore_rules.test.cjs payment_backend.test.cjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "latest",

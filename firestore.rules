@@ -1,8 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
-    function isAdmin() { return signedIn() && request.auth.token.get('admin', false) == true; }
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && (request.auth.token.get('admin', false) == true
+        || (exists(/databases/$(database)/documents/admin_requests/$(request.auth.uid))
+          && get(/databases/$(database)/documents/admin_requests/$(request.auth.uid)).data.status == 'approved'));
+    }
     function owns(uid) { return signedIn() && request.auth.uid == uid; }
     function lineTotal(items, index) {
       return index < items.size() ? items[items.keys()[index]].price * items[items.keys()[index]].quantity : 0;
@@ -49,11 +53,15 @@ service cloud.firestore {
       allow list: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if signedIn() && validOrder(orderId);
       allow update: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin())
+        && resource.data.paymentMethod == 'COD'
         && resource.data.status == 'Chờ xác nhận' && request.resource.data.status == 'Đã hủy'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancelledAt'])
         && request.resource.data.cancelledAt == request.time
         && allStockLines(resource.data.items,orderId,true);
       allow update: if isAdmin()
+        && (resource.data.paymentMethod == 'COD'
+          || (resource.data.paymentMethod == 'MOMO' && resource.data.paymentStatus == 'paid'
+            && resource.data.paymentEnvironment == 'production'))
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','statusUpdatedAt','statusUpdatedBy'])
         && request.resource.data.statusUpdatedAt == request.time
         && request.resource.data.statusUpdatedBy == request.auth.uid
@@ -61,6 +69,9 @@ service cloud.firestore {
           || (resource.data.status == 'Đang giao' && request.resource.data.status == 'Hoàn thành'));
       allow delete: if false;
     }
+    // Gateway sessions and rate budgets are managed only by the Admin SDK.
+    match /payment_sessions/{id} { allow read, write: if false; }
+    match /payment_rate_limits/{id} { allow read, write: if false; }
     match /products/{id} {
       allow read: if signedIn();
       allow create: if isAdmin() && validProduct(id);
@@ -72,13 +83,14 @@ service cloud.firestore {
         && request.resource.data.stock is int && request.resource.data.stock >= 0
         && request.resource.data.updatedAt == request.time
         && validProductStock(id))
-        || (request.auth.token.get('admin', false) == true && validProduct(id)
+        || (isAdmin() && validProduct(id)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['id','name','category','petTarget','price','originalPrice','discountPercent','stock','rating','reviewCount','imageUrl','description','weight','isFeatured','isActive','updatedAt'])));
       function validProductStock(productId) {
         let orderId = request.resource.data.lastOrderId;
         let orderPath = /databases/$(database)/documents/orders/$(orderId);
         let after = getAfter(orderPath).data;
         return (after.userId == request.auth.uid || isAdmin())
+          && after.paymentMethod == 'COD'
           && productId in after.items
           && ((!exists(orderPath) && after.status == 'Chờ xác nhận' && after.createdAt == request.time
             && request.resource.data.stock == resource.data.stock - after.items[productId].quantity)
@@ -133,6 +145,34 @@ service cloud.firestore {
         && request.resource.data.content is string && request.resource.data.content.size() > 0 && request.resource.data.content.size() <= 50000
         && request.resource.data.readTimeMinutes is int && request.resource.data.readTimeMinutes > 0 && request.resource.data.readTimeMinutes <= 120
         && request.resource.data.updatedAt == request.time;
+    }
+    match /admin_requests/{uid} {
+      allow get: if owns(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if owns(uid) && !isAdmin() && validPending()
+        && request.resource.data.createdAt == request.time;
+      allow update: if owns(uid) && !isAdmin()
+        && resource.data.status in ['rejected', 'revoked'] && validPending()
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow update: if isAdmin() && request.auth.uid != uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status','updatedAt','reviewedAt','reviewedBy','reviewNote'])
+        && ((resource.data.status == 'pending' && request.resource.data.status in ['approved','rejected'])
+          || (resource.data.status == 'approved' && request.resource.data.status == 'revoked'))
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewNote is string && request.resource.data.reviewNote.size() <= 500;
+      allow delete: if false;
+      function validPending() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['uid','email','displayName','reason','status','createdAt','updatedAt','reviewedAt','reviewedBy','reviewNote'])
+          && d.uid == uid && d.email == request.auth.token.email
+          && d.displayName is string && d.displayName.size() > 0 && d.displayName.size() <= 80
+          && d.reason is string && d.reason.size() >= 10 && d.reason.size() <= 500
+          && d.status == 'pending' && d.updatedAt == request.time
+          && d.reviewedAt == null && d.reviewedBy == null && d.reviewNote == '';
+      }
     }
     match /users/{uid} {
       allow read: if owns(uid) || isAdmin();

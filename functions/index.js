@@ -60,3 +60,5 @@ exports.sendEmailVerificationCode = callable((otp, request) =>
   otp.requestCode(request.auth.uid, request.rawRequest.ip));
 exports.verifyEmailVerificationCode = callable((otp, request) =>
   otp.verifyCode(request.auth.uid, request.data?.code));
+
+Object.assign(exports, require('./momo_functions'));

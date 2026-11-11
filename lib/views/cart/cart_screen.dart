@@ -7,7 +7,10 @@ import '../../providers/cart_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../services/firebase_service.dart';
 import '../../services/app_error.dart';
+import '../../services/online_payment_service.dart';
+import '../../services/order_payment.dart';
 import '../profile/orders_screen.dart';
+import 'momo_payment_screen.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -27,6 +30,7 @@ class _CartScreenState extends State<CartScreen> {
     decimalDigits: 0,
   );
   bool _refreshing = false;
+  String _paymentMethod = OrderPayment.cod;
   @override
   void initState() {
     super.initState();
@@ -70,9 +74,13 @@ class _CartScreenState extends State<CartScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Xác nhận đặt hàng COD'),
+        title: Text(
+          _paymentMethod == OrderPayment.momo
+              ? 'Đặt hàng và thanh toán MoMo'
+              : 'Xác nhận đặt hàng COD',
+        ),
         content: Text(
-          'Tổng dự kiến: ${_money.format(cart.totalAmount)}\nGiao đến: ${_address.text.trim()}\nThanh toán khi nhận hàng.',
+          'Tổng dự kiến: ${_money.format(cart.totalAmount)}\nGiao đến: ${_address.text.trim()}\n${_paymentMethod == OrderPayment.momo ? 'Tiếp tục thanh toán qua MoMo.' : 'Thanh toán khi nhận hàng.'}',
         ),
         actions: [
           TextButton(
@@ -92,7 +100,7 @@ class _CartScreenState extends State<CartScreen> {
       final id = await cart.beginCheckout(
         () => FirebaseService.instance.firestore.collection('orders').doc().id,
       );
-      await FirebaseService.instance.createOrder({
+      final checkout = <String, dynamic>{
         'quantities': {
           for (final item in cart.items.values) item.id: item.quantity,
         },
@@ -103,7 +111,30 @@ class _CartScreenState extends State<CartScreen> {
           'phone': _phone.text.trim(),
           'address': _address.text.trim(),
         },
-      }, orderId: id);
+      };
+      if (_paymentMethod == OrderPayment.momo) {
+        final session = await OnlinePaymentService().create(
+          id,
+          checkout: checkout,
+        );
+        if (session.paymentStatus == 'failed') {
+          cart.resetFailedCheckout();
+          throw StateError(
+            'MoMo chưa tạo được thanh toán. Giỏ hàng được giữ lại; bạn có thể chọn COD hoặc thử lại sau.',
+          );
+        }
+        cart.clearCart();
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                MomoPaymentScreen(orderId: id, initialSession: session),
+          ),
+        );
+        return;
+      }
+      await FirebaseService.instance.createOrder(checkout, orderId: id);
       cart.clearCart();
       await shop.fetchProducts();
       if (!mounted) return;
@@ -300,11 +331,52 @@ class _CartScreenState extends State<CartScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    const Text(
+                      'Phương thức thanh toán',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Khi nhận hàng (COD)'),
+                          selected: _paymentMethod == OrderPayment.cod,
+                          onSelected: disabled
+                              ? null
+                              : (_) => setState(
+                                  () => _paymentMethod = OrderPayment.cod,
+                                ),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Ví MoMo'),
+                          selected: _paymentMethod == OrderPayment.momo,
+                          onSelected: disabled
+                              ? null
+                              : (_) => setState(
+                                  () => _paymentMethod = OrderPayment.momo,
+                                ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _paymentMethod == OrderPayment.momo
+                          ? 'Mở MoMo để thanh toán và quay lại PawPals xem kết quả.'
+                          : 'Thanh toán cho người giao hàng khi nhận sản phẩm.',
+                    ),
+                    const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: disabled ? null : _checkout,
                       child: Text(
                         cart.busy
                             ? 'Đang xác nhận đơn hàng…'
+                            : _paymentMethod == OrderPayment.momo
+                            ? 'ĐẶT HÀNG • THANH TOÁN MOMO'
                             : 'ĐẶT HÀNG • THANH TOÁN KHI NHẬN',
                       ),
                     ),
